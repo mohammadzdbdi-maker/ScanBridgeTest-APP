@@ -262,6 +262,10 @@ nQIDAQAB
         InitializeExpiryFilterControls();
         TraceMainWindowStartup("InitializeExpiryFilterControls done");
 
+        TraceMainWindowStartup("InitializeHighUsageBarcodeFeature start");
+        InitializeHighUsageBarcodeFeature();
+        TraceMainWindowStartup("InitializeHighUsageBarcodeFeature done");
+
         TraceMainWindowStartup("UpdateLanguageUI start");
         UpdateLanguageUI();
         TraceMainWindowStartup("UpdateLanguageUI done");
@@ -383,6 +387,11 @@ nQIDAQAB
                     return;
                 }
 
+                // اگر بانک «بارکد پرمصرف» در حالت دریافت فعال باشد (کاربر یک زیرگروه را برای دریافت
+                // انتخاب کرده)، این بارکد به‌جای مسیر عادی تاریخچه/تی‌تک، به همان زیرگروه اضافه شود.
+                bool highUsageCaptureHandled = await Dispatcher.InvokeAsync(() => TryCaptureHighUsageBarcode(incomingBarcode));
+                if (highUsageCaptureHandled)
+                    return;
 
                 var timestampLocal = ToLocalTimestamp(args.TimestampUtc);
                 var record = new ScanRecord(timestampLocal, incomingBarcode, GetDeviceDisplayName(originalDeviceName));

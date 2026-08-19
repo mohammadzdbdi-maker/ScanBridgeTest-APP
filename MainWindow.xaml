@@ -487,6 +487,15 @@
                                 FontSize="18"
                                 Content="تحویل بار" />
 
+                        <Button x:Name="HighUsageBarcodePanelButton"
+                                Click="HighUsageBarcodePanelButton_Click"
+                                Style="{StaticResource RoundedButtonStyle}"
+                                Height="60"
+                                Margin="0,8"
+                                Background="#EA580C"
+                                FontSize="18"
+                                Content="بارکد پرمصرف" />
+
                         <Grid x:Name="ExpiryWatchPanelButtonHost"
                               Margin="0,8"
                               Visibility="Collapsed">
@@ -3522,6 +3531,37 @@
                                         </StackPanel>
                                     </Border>
                                 </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- ردیف: بانک بارکد پرمصرف (آیکون شناور) -->
+                        <Border x:Name="HighUsageBarcodeSettingsSection"
+                                Background="#FFF7ED"
+                                CornerRadius="14"
+                                Padding="16"
+                                Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock x:Name="HighUsageBarcodeSectionTitle"
+                                           Text="📦 بانک بارکد پرمصرف"
+                                           FontSize="16"
+                                           FontWeight="Bold"
+                                           Foreground="#C2410C"
+                                           Margin="0,0,0,4" />
+                                <TextBlock x:Name="HighUsageBarcodeSectionDescription"
+                                           Text="برای بارکدهایی که هر روز زیاد استفاده می‌کنید (مثل سرم‌ها یا آنتی‌بیوتیک‌ها) یک بانک بسازید و با یک کلیک، بارکد را در هر برنامه‌ی دیگری که باز است وارد کنید."
+                                           FontSize="12"
+                                           Foreground="#4B5563"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,10" />
+                                <CheckBox x:Name="HighUsageWidgetEnableCheckBox"
+                                          FontSize="13"
+                                          Foreground="#333333"
+                                          Checked="HighUsageWidgetEnableCheckBox_Checked"
+                                          Unchecked="HighUsageWidgetEnableCheckBox_Unchecked">
+                                    <TextBlock x:Name="HighUsageWidgetEnableText"
+                                               Text="نمایش آیکون شناور بانک بارکد پرمصرف روی صفحه"
+                                               TextWrapping="Wrap" />
+                                </CheckBox>
                             </StackPanel>
                         </Border>
 
