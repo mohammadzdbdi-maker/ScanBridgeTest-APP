@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 10px; background: #111; color: white; }
+    #status { font-size: 18px; margin: 10px; padding: 10px; border-radius: 8px; background: #333; }
+    #status.ok { background: #1b5e20; }
+    #status.err { background: #b71c1c; }
+    #reader { width: 100%; max-width: 400px; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <h2>ScanBridge - اسکنر</h2>
+  <div id="status">در حال اتصال به سرور...</div>
+  <div id="reader"></div>
+
+  <script>
+    const SERVER_IP = "172.20.10.9";
+    let ws = new WebSocket("wss://" + SERVER_IP + ":5050");
+    const statusEl = document.getElementById("status");
+
+    ws.onopen = () => {
+      statusEl.innerText = "متصل به سرور ✓ آماده‌ی اسکن";
+      statusEl.className = "ok";
+    };
+    ws.onerror = () => {
+      statusEl.innerText = "خطا در اتصال به سرور!";
+      statusEl.className = "err";
+    };
+    ws.onclose = () => {
+      statusEl.innerText = "اتصال قطع شد";
+      statusEl.className = "err";
+    };
+
+    let lastCode = "";
+    let lastTime = 0;
+
+    function onScanSuccess(decodedText) {
+      const now = Date.now();
+      if (decodedText === lastCode && now - lastTime < 2000) return;
+      lastCode = decodedText;
+      lastTime = now;
+
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(decodedText);
+        statusEl.innerText = "ارسال شد: " + decodedText;
+        statusEl.className = "ok";
+        if (navigator.vibrate) navigator.vibrate(100);
+      }
+    }
+
+   const scanner = new Html5Qrcode("reader", {
+  formatsToSupport: [
+    Html5QrcodeSupportedFormats.EAN_13,
+    Html5QrcodeSupportedFormats.EAN_8,
+    Html5QrcodeSupportedFormats.UPC_A,
+    Html5QrcodeSupportedFormats.UPC_E,
+    Html5QrcodeSupportedFormats.CODE_128,
+    Html5QrcodeSupportedFormats.CODE_39,
+    Html5QrcodeSupportedFormats.QR_CODE
+  ],
+  verbose: false
+});
+
+scanner.start(
+  { facingMode: "environment" },
+  { fps: 10, qrbox: { width: 320, height: 150 } },
+  onScanSuccess
+);
+  </script>
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html ng-app="app" ng-controller="LayoutCtrl">
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <title></title>
+    <meta name="viewport" content="user-scalable=0,initial-scale=1.0, maximum-scale=1, minimum-scale=1" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link href="../content/app/font-awesome.min.css" rel="stylesheet">
+    <link href="../content/app/app.css" rel="stylesheet">
+    <link href="../../Client/content/bootstrap/bootstrap.css" rel="stylesheet" />
+    <link href="/content/app/style.css" rel="stylesheet">
+</head>
+<body lang="en" dir="rtl">
+    <div class="container" ng-cloak>
+        <div class="login-form" ng-show="model.loginUrl">
+            <div class="row">
+                <div class="col-lg-7 col-md-7 col-sm-12 col-xs-12 no-padding">
+                    <div class="text-center title-warning"><i class="fa fa-exclamation-triangle m-l-5" aria-hidden="true"></i> هشدار</div>
+                    <div class="warning">
+                        <p>
+                            این سایت متعلق به سازمان غذا و داروی جمهوری اسلامی ایران است و یک درگاه دولتی محسوب می شود. تمام فعالیت های شما در این سامانه تحت نظارت بوده و ثبت و ضبط می شود. استفاده از این سامانه، نشان دهنده آگاهی شما نسبت به نظارت همه جانبه سازمان غذا و دارو بر عملکردتان در ارتباط با آن است که به جهت آشکار سازی هرگونه عمل مجرمانه صورت می پذیرد. سازمان غذا و دارو بر اساس قانون انتشار و دسترسي آزاد به اطلاعات مصوب 1388، آن بخش از اطلاعات را که جنبه محرمانه دارند، مگر به دستور مقامات ذیصلاح، در اختیار هیچ شخص حقیقی یا حقوقی قرار نخواهد داد.
+                        </p>
+                        <p class="font-bold">
+                            بر اساس قوانین و مقررات جمهوری اسلامی ایران به ویژه :
+                        </p>
+                        <ul>
+                            <li>
+                                1- قانون تشکیلات و وظایف وزارت بهداشت، درمان و آموزش پزشکی مصوب 1367
+                            </li>
+                            <li>
+                                2- قانون مربوط به مقررات امور پزشکی، دارویی و مواد خوردنی و آشامیدنی مصوب 1334 و اصلاحات بعدی آن
+                            </li>
+                            <li>
+                                3- قانون مواد خوردنی و آشامیدنی و آرایشی و بهداشتی مصوب 1346 و آیین نامه‌های اجرایی آن
+                            </li>
+                            <li>
+                                4- ضابطه موضوع بند پ – ماده 7 قانون احکام دائمی برنامه های توسعه کشور (مصوب 1395/11/10 مجلس شورای اسلامی)
+                            </li>
+                            <li>
+                                5- تبصره 2 ماده 5 ماده قانون مبارزه با قاچاق کالا و ارز
+                            </li>
+                        </ul>
+                        <p>
+                            هر نوع دسترسی و فعالیت غیر مجاز در سامانه حاضر و سایر سامانه‌های سازمان، پیگرد قانونی خواهد داشت. ورود به این سامانه با نام کاربری و کلمه عبور شما، بیانگر پذیرش مسئولیتهای قانونی مربوطه توسط شخص شما بوده و ضروری است که در حفظ کلمه عبور خود کوشا باشید و آن را در اختیار هیچ فرد دیگری قرار ندهید.
+                        </p>
+                    </div>
+                    <div class="footer-warning">
+                        طراحی، تولید، پیاده سازی و پشتیبانی:
+                        <a class="footer-link"
+                           target="_blank"
+                           href="http://www.samansalamat.com">
+                            شرکت سامان سلامت پژوه
+                        </a>
+                    </div>
+                </div>
+                <div class="col-lg-5 col-md-5 col-sm-12 col-xs-12 no-padding">
+                    <div class="client-name">شما با سامانه زنجیره تامین وارد شده اید</div>
+
+                    <div class="head">
+                        <img src="../Content/app/logo.png" />
+                    </div>
+                    <form name="form" method="post" action="{{model.loginUrl}}" class="main">
+                        <anti-forgery-token token="model.antiForgery"></anti-forgery-token>
+                        <input required name="username" autofocus id="username" type="text" class="form-control" placeholder='&#xf007; &nbsp;' title="نام کاربری" ng-model="model.username" maxlength="100">
+                        <input required id="password" name="password" type="password" class="form-control" placeholder='&#xf13e; &nbsp; ' title="رمز عبور" ng-model="model.password" maxlength="100" autocomplete="off">
+                        <i class="fa fa-eye fa-lg" aria-hidden="true"></i>
+                        <div class="clearfix"></div>
+                        <div class="form-group login-remember" ng-show="model.allowRememberMe">
+                            <label for="rememberMe">
+                                <input type="checkbox" id="rememberMe" name="rememberMe" ng-model="model.rememberMe" value="true">
+                                <strong>من را بخاطر بسپار</strong>
+                            </label>
+                        </div>
+                        <div ng-init="loadCaptcha()" ng-if="model.accessFaildCount != 0" class="idprecapch">
+                            <img ng-src="{{captchaModel.captchaUrl}}" class="pull-right fa-border" style="width:92%" />
+                            <img ng-click="loadCaptcha()" src="../content/images/reload.gif" style="cursor:pointer; width:22px;vertical-align:top" class="pull-left" />
+                            <div class="clearfix"></div>
+                            <input type="text" class="form-control" style="text-align:right; margin-top:10px" ng-model="captchaModel.userInput" only-number required maxlength="6" autocomplete="off" placeholder="کد امنیتی داخل تصویر را وارد نمایید" />
+                            <input name="captcha" type="hidden" value="{{captchaModel.captchaId+'_'+captchaModel.userInput}}" />
+                            <span>{{model.captchaDescription}}</span>
+                        </div>
+                        <p class="captcha-warning" ng-show="model.errorMessage">
+                            *در صورتی که کد امنیتی را مشاهده نمیکنید لطفا کلید های
+                            <br/>
+                            (CTRL + F5) را همزمان فشار دهید
+                        </p>
+                        <div class="submit">
+                            <input type="submit" value="ورود به سیستم" ng-disabled="form.$invalid">
+                        </div>
+
+                        <ul class="list-unstyled">
+                            <li ng-repeat="link in model.additionalLinks"><a ng-href="{{link.href}}">{{link.text}}</a></li>
+                        </ul>
+                        <ul class="list-unstyled">
+                            <li><a href="https://ttac.ir/otpapp/index.html">اپلیکیشن اندروید OTP سازمان غذا و دارو</a></li>
+                        </ul>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-6 col-sm-6 external-providers" ng-show="model.externalProviders">
+                <div class="panel panel-default">
+                    <div class="panel-body">
+                        <ul class="list-inline">
+                            <li ng-repeat="provider in model.externalProviders">
+                                <a class="btn btn-default" href="{{provider.href}}">{{provider.text}}</a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="alertmsg-parent" ng-if="model.errorMessage">
+        <div class="alertmsg">
+            <i class="fa fa-info-circle m-l-10 font-28"></i><span>خطا : {{model.errorMessage}}</span>
+        </div>
+    </div>
+    <script id='modelJson' type='application/json'>
+        {&quot;accessFaildCount&quot;:0,&quot;captchaDescription&quot;:null,&quot;loginUrl&quot;:&quot;/identity/login?signin=31918d86f70da1db768b09e7107a9840&quot;,&quot;antiForgery&quot;:{&quot;name&quot;:&quot;idsrv.xsrf&quot;,&quot;value&quot;:&quot;aPDlG0eK0ZeiMhqRuysFqz3iziGOz0NLd-l0MesDzBbHFvw9K2VG6XlsArMmH7ZFAZ07x0VEq2JgwlgsumzN0-rRhs2waRVS8mpA7Gn-4bs&quot;},&quot;allowRememberMe&quot;:true,&quot;rememberMe&quot;:false,&quot;username&quot;:null,&quot;externalProviders&quot;:[],&quot;additionalLinks&quot;:[{&quot;type&quot;:null,&quot;text&quot;:&quot;&#1585;&#1605;&#1586; &#1593;&#1576;&#1608;&#1585; &#1585;&#1575; &#1601;&#1585;&#1575;&#1605;&#1608;&#1588; &#1705;&#1585;&#1583;&#1607; &#1575;&#1605;&quot;,&quot;href&quot;:&quot;RestPassword?signin=31918d86f70da1db768b09e7107a9840&quot;},{&quot;type&quot;:null,&quot;text&quot;:&quot;&#1606;&#1575;&#1605; &#1705;&#1575;&#1585;&#1576;&#1585;&#1740; &#1582;&#1608;&#1583; &#1585;&#1575; &#1601;&#1585;&#1575;&#1605;&#1608;&#1588; &#1705;&#1585;&#1583;&#1607; &#1575;&#1605;&quot;,&quot;href&quot;:&quot;ForgetUsername?signin=31918d86f70da1db768b09e7107a9840&quot;}],&quot;clientName&quot;:&quot;&#1587;&#1575;&#1605;&#1575;&#1606;&#1607; &#1586;&#1606;&#1580;&#1740;&#1585;&#1607; &#1578;&#1575;&#1605;&#1740;&#1606;&quot;,&quot;clientUrl&quot;:&quot;https://statisticsreports.ttac.ir&quot;,&quot;clientLogoUrl&quot;:null,&quot;errorMessage&quot;:null,&quot;requestId&quot;:&quot;688f68c9-9c18-44db-bc56-9608945437da&quot;,&quot;siteUrl&quot;:&quot;https://idp.ttac.ir/identity/&quot;,&quot;siteName&quot;:&quot;Identity Server&quot;,&quot;currentUser&quot;:null,&quot;logoutUrl&quot;:&quot;https://idp.ttac.ir/identity/logout&quot;,&quot;custom&quot;:null}
+    </script>
+    <script src="/content/libs/jquery/jquery-1.11.0.min.js"></script>
+    <script src="/content/libs/bootstrap/js/bootstrap.min.js"></script>
+    <script src="/content/libs/angular/angular.1.2.13.min.js"></script>
+    <script src="/content/libs/encoder/encoder.min.js"></script>
+    <script src="/content/app/app.js"></script>
+    <script src="/content/app/eye.js"></script>
+</body>
+</html>
+

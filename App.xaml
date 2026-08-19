@@ -1,0 +1,66 @@
+<Application x:Class="ScanBridgeTest.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <FontFamily x:Key="AppFont">./Assets/font/#Pinar DS1</FontFamily>
+        
+        <Style x:Key="RoundedButtonStyle" TargetType="Button">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" 
+                                Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="12" 
+                                SnapsToDevicePixels="true">
+                            <ContentPresenter x:Name="contentPresenter" 
+                                              Focusable="False" 
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" 
+                                              Margin="{TemplateBinding Padding}" 
+                                              RecognizesAccessKey="True" 
+                                              SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" 
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="true">
+                                <Setter TargetName="border" Property="Opacity" Value="0.8" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="true">
+                                <Setter TargetName="border" Property="Opacity" Value="0.6" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="BorderBrush" Value="#E5E7EB" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Style.Resources>
+                <Style TargetType="Border">
+                    <Setter Property="CornerRadius" Value="12" />
+                </Style>
+            </Style.Resources>
+        </Style>
+
+        <Style TargetType="Window">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+    </Application.Resources>
+</Application>

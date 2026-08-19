@@ -1,0 +1,44 @@
+## Build outputs
+bin/
+obj/
+
+## Visual Studio
+.vs/
+*.user
+*.suo
+*.sln.docstates
+*.csproj.user
+
+## IDE
+.idea/
+*.swp
+*~
+
+## OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+## Sensitive files
+key.pem
+computer-id.txt
+
+## Temporary / output files
+server-output.txt
+server2-output.txt
+server3-output.txt
+
+## Freebuff
+.freebuff/
+
+## User-specific data
+local-settings.json
+saved-ttac-logins.json
+ttac-login-license.dat
+
+## Photos (large binary files)
+FormulaPhotos/
+عکس_های-شیرخشک-نسخه-سبک/
+
+## Support binaries
+Support/

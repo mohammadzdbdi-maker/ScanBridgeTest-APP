@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
+    <StartupObject>ScanBridgeTest.App</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
+    <PackageReference Include="Fleck" Version="1.2.0" />
+    <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
+    <PackageReference Include="PuppeteerSharp" Version="25.4.0" />
+    <PackageReference Include="QRCoder" Version="1.8.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="WebDriverManager" Version="2.17.7" />
+  </ItemGroup>
+
+    <ItemGroup>
+    <Resource Include="Assets\app-icon.ico" />
+    <Resource Include="Assets\font\Pinar-DS1-Regular.ttf" />
+    <Content Include="Assets\app-icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+  <None Include="Support\**">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+  </None>
+</ItemGroup>
+
+  <ItemGroup>
+    <Content Include="special-prescription-generics.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="No-Rx-Formula.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="Rx-Formula.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="special-prescription-generics.txt" />
+    <EmbeddedResource Include="No-Rx-Formula.txt" />
+    <EmbeddedResource Include="Rx-Formula.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="FormulaPhotos\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+</Project>
