@@ -448,6 +448,12 @@ nQIDAQAB
         // اینجا اعمالش می‌کنیم.
         _service.PeerDesktopSettingsReceived += (_, args) => ApplyPeerDesktopSettings(args.PayloadJson, args.VersionUtcMs);
 
+        // ویژگی «ورود اطلاعات از راه دور» (فرم ثبت شیرخشک روی گوشی) - نگاه کنید به
+        // MainWindow.RemoteFormulaEntry.cs
+        _service.RemoteEntryValueReceived += (_, args) => HandleRemoteEntryValueFromPhone(args.Barcode, args.StepId, args.Value);
+        _service.RemoteEntrySubmitReceived += (_, args) => HandleRemoteEntrySubmitFromPhone(args.Barcode);
+        _service.RemoteEntryBackReceived += (_, args) => HandleRemoteEntryBackFromPhone(args.Barcode);
+
         TraceMainWindowStartup("MainWindow constructor completed");
     }
 
@@ -4010,6 +4016,10 @@ nQIDAQAB
             await LoadTtacCaptchaAsync(false);
             FocusAndSelect(TtTeckRegistrationAmountTextBox);
         }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
+        // اگر این یک قلم شیرخشک است و گوشی‌ای وصل است، همین فرم روی گوشی هم مرحله‌به‌مرحله شروع
+        // می‌شود (نگاه کنید به MainWindow.RemoteFormulaEntry.cs).
+        StartRemoteFormulaEntryIfPossible(row);
     }
 
     private FormulaRegistrationMode GetFormulaRegistrationModeForRow(TtTeckHistoryRow row)
@@ -4542,6 +4552,15 @@ nQIDAQAB
         if (IsBarcodeTtacRegistered(record.Barcode))
         {
             Dispatcher.BeginInvoke(new Action(() => ShowTtacRegistrationHistoryForBarcode(record.Barcode)));
+
+            // چون در این حالت هیچ‌وقت فرم ثبت باز نمی‌شود، ویزارد «ورود از راه دور» هم هیچ‌وقت
+            // روی گوشی شروع نمی‌شود - پس اگر گوشی وصل است، به‌جایش فقط عکس محصول و یک پیام کوتاه
+            // «قبلاً ثبت شده» روی گوشی نشان می‌دهیم (همان مکانیزم BroadcastAlert موجود).
+            _service?.BroadcastAlert(
+                _localization.GetString("AlreadyRegisteredFormulaTitleForPhone"),
+                _localization.GetString("ThisProductWasAlreadyRegisteredForThisPharmacyForPhone"),
+                true,
+                GetFormulaPhotoPathForBarcode(record.Barcode));
             return;
         }
 
@@ -4592,6 +4611,11 @@ nQIDAQAB
             string key = GetReceiveStatusStorageKey() + "|" + _pendingRegistrationTtTeckRow.Barcode;
             _autoOpenedFormulaRegistrationKeys.Remove(key);
         }
+
+        // اگر «ورود اطلاعات از راه دور» برای همین فرم فعال بود و همین‌جا (نه بعد از ثبت
+        // موفق/ناموفق که خودش با EndRemoteFormulaEntry(notifyPhone:false) این حالت را از قبل پاک
+        // کرده) بسته می‌شود، یعنی کاربر خودش فرم را بست - به گوشی خبر بده تا ویزارد پاک شود.
+        EndRemoteFormulaEntry();
 
         TtTeckRegistrationOverlay.Visibility = Visibility.Collapsed;
         MainContent.Effect = null;
@@ -8374,6 +8398,7 @@ nQIDAQAB
             TtTeckRegistrationResultText.Text = _localization.GetString("CaptchaReceivedEnterTheCodeAndCreatePrescription");
             ValidateTtacRegistrationFields();
             UpdateTtacRegistrationStageButtons();
+            NotifyRemoteEntryCaptchaLoaded(imageData);
         }
         catch (Exception ex)
         {
@@ -8555,6 +8580,14 @@ nQIDAQAB
 
     private async void TtTeckRegistrationCreatePrescriptionButton_Click(object sender, RoutedEventArgs e)
     {
+        await CreateCurrentTtacPrescriptionAsync();
+    }
+
+    // بدنه‌ی همان دکمه‌ی «ایجاد نسخه»، جدا شده به یک متد قابل‌await تا هم از کلیک محلی هم از
+    // جریان «ورود اطلاعات از راه دور» (وقتی دکمه‌ی نهایی روی گوشی زده می‌شود) با یک منطق واحد صدا
+    // زده شود - نگاه کنید به MainWindow.RemoteFormulaEntry.cs.
+    private async Task CreateCurrentTtacPrescriptionAsync()
+    {
         UpdateTtacRegistrationStageButtons(true);
         try
         {
@@ -8630,11 +8663,22 @@ nQIDAQAB
         }
         catch (Exception ex)
         {
+            bool isFormulaRegistrationForAlert = IsCurrentRegistrationFormulaItem();
             HandleTtacOperationException(ex, _localization.GetString("CreatePrescriptionFailed"), async () =>
             {
-                TtTeckRegistrationCreatePrescriptionButton_Click(TtTeckRegistrationCreatePrescriptionButton, new RoutedEventArgs());
-                await Task.CompletedTask;
-            }, pendingLabel: _localization.GetString("PendingCreatePrescription"));
+                await CreateCurrentTtacPrescriptionAsync();
+            }, pendingLabel: _localization.GetString("PendingCreatePrescription"),
+            onFailureMessageShown: (shownTitle, shownMessage) =>
+            {
+                // فقط برای شیرخشک، و فقط وقتی واقعاً یک پیام خطای نهایی نشان داده شده (نه در حالت
+                // نشست‌منقضی‌شده که خودش خودکار دوباره تلاش می‌کند). این خطا (مثلاً کپچای اشتباه یا
+                // کد ملی نامعتبر) اگر ورود از راه دور فعال بود، روی گوشی هم نشان داده می‌شود - بدون
+                // پایان‌دادن به کل جریان، تا کاربر بتواند با دکمه‌ی «قبلی» برگردد و فیلد را اصلاح کند.
+                if (isFormulaRegistrationForAlert)
+                {
+                    ShowRemoteEntryErrorAndAllowRetry(shownTitle, shownMessage);
+                }
+            });
         }
         finally
         {
@@ -8702,6 +8746,15 @@ nQIDAQAB
 
     private async void TtTeckRegistrationSubmitItemButton_Click(object sender, RoutedEventArgs e)
     {
+        await SubmitCurrentTtacItemAsync(viaRemoteEntry: false);
+    }
+
+    // بدنه‌ی همان دکمه‌ی «ثبت قلم»، جدا شده به یک متد قابل‌await با یک پارامتر جدید
+    // (viaRemoteEntry) تا هم از کلیک محلی هم از جریان «ورود اطلاعات از راه دور» (گوشی) با یک
+    // منطق واحد صدا زده شود. تنها رفتار متفاوت در دو مسیر، سناریوی نادرِ «احتمال ثبت تکراری»
+    // است (نگاه کنید پایین‌تر) - نگاه کنید به MainWindow.RemoteFormulaEntry.cs.
+    private async Task SubmitCurrentTtacItemAsync(bool viaRemoteEntry)
+    {
         UpdateTtacRegistrationStageButtons(true);
         // بیرون از try تعریف می‌شود تا در catch هم در دسترس باشد (برای پاک‌کردن کلید در
         // شکست‌های قطعی که درخواست به تی‌تک نرسیده).
@@ -8733,6 +8786,21 @@ nQIDAQAB
             submissionKey = $"{_ttacCurrentPrescriptionId.Value}|{_pendingRegistrationTtTeckRow.Barcode}|{amount}";
             if (_ttacSubmittedItemKeys.Contains(submissionKey))
             {
+                if (viaRemoteEntry)
+                {
+                    // وقتی از گوشی ثبت می‌شود، کسی پای سیستم نیست که به این دیالوگ تایید بدهد؛ طبق
+                    // تصمیم صریح کاربر، این سناریوی نادر خودکار ادامه پیدا نمی‌کند - پیام روی گوشی
+                    // نشان داده می‌شود و کاربر باید خودش دوباره دکمه‌ی ثبت را بزند (یا با «قبلی»
+                    // برگردد و چیزی را اصلاح کند)؛ جریان پایان نمی‌یابد.
+                    AddTtacRegistrationLog(false,
+                        _localization.GetString("SubmitItem"),
+                        _localization.GetString("AutomaticResendSkippedByTheUserToAvoidADuplicateTTACRegistration"));
+                    ShowRemoteEntryErrorAndAllowRetry(
+                        _localization.GetString("PossibleDuplicateSubmission"),
+                        _localization.GetString("ARegistrationRequestForThisExactItemAndPrescriptionMayHaveAlreadyReachedTTACOnceBeforeEGTheSessionExpiredRightAfterSendingSendingItAgainCouldRegisterItTwiceSendAgainAnyway"));
+                    return;
+                }
+
                 var confirmResult = System.Windows.MessageBox.Show(
                     this,
                     _localization.GetString("ARegistrationRequestForThisExactItemAndPrescriptionMayHaveAlreadyReachedTTACOnceBeforeEGTheSessionExpiredRightAfterSendingSendingItAgainCouldRegisterItTwiceSendAgainAnyway"),
@@ -8778,6 +8846,12 @@ nQIDAQAB
             AddTtacRegistrationLog(true, _localization.GetString("SubmitItem"), successMessage);
             AddPersistentTtacRegistrationHistory(true, successMessage);
 
+            // اگر ورود از راه دور برای همین قلم فعال بود، همین‌جا (بدون فرستادن پیام لغو جداگانه
+            // به گوشی) پایان می‌یابد - چون خودِ BroadcastAlert چند خط پایین‌تر، نتیجه‌ی موفق را با
+            // همان دیالوگ آشنا روی گوشی نشان می‌دهد.
+            if (canRepeatFormulaRegistration)
+                EndRemoteFormulaEntry(notifyPhone: false);
+
             CloseTtTeckRegistrationOverlay();
             _ttacCurrentPrescriptionId = null;
             _ttacCurrentCaptchaId = string.Empty;
@@ -8818,16 +8892,19 @@ nQIDAQAB
             bool isFormulaRegistrationForAlert = IsCurrentRegistrationFormulaItem();
             HandleTtacOperationException(ex, _localization.GetString("SubmitItemFailed"), async () =>
             {
-                TtTeckRegistrationSubmitItemButton_Click(TtTeckRegistrationSubmitItemButton, new RoutedEventArgs());
-                await Task.CompletedTask;
+                await SubmitCurrentTtacItemAsync(viaRemoteEntry);
             },
             pendingLabel: _localization.GetString("PendingSubmitItem"),
             onFailureMessageShown: (shownTitle, shownMessage) =>
             {
                 // فقط برای شیرخشک، و فقط وقتی واقعاً یک پیام خطای نهایی نشان داده شده (نه در حالت
-                // نشست‌منقضی‌شده که خودش خودکار دوباره تلاش می‌کند و هنوز نتیجه‌ی نهایی‌ای نیست).
+                // نشست‌منقضی‌شده که خودش خودکار دوباره تلاش می‌کند و هنوز نتیجه‌ی نهایی‌ای نیست). این
+                // خطا اگر ورود از راه دور فعال بود، روی گوشی هم نشان داده می‌شود - بدون پایان‌دادن به
+                // کل جریان، تا کاربر بتواند با دکمه‌ی «قبلی» برگردد و فیلد را اصلاح کند.
                 if (isFormulaRegistrationForAlert)
-                    _service?.BroadcastAlert(shownTitle, shownMessage, false);
+                {
+                    ShowRemoteEntryErrorAndAllowRetry(shownTitle, shownMessage);
+                }
             });
         }
         finally

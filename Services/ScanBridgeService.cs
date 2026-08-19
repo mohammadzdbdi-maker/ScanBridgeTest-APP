@@ -83,6 +83,13 @@ public sealed class ScanBridgeService : IDisposable
     // وقتی IP شبکه‌ی محلی عوض می‌شود (مثلاً از وای‌فای به کابل یا شبکه‌ی دیگر) فایر می‌شود تا
     // برنامه QR اتصال را خودکار دوباره بسازد و IP نمایش‌داده‌شده را به‌روز کند.
     public event EventHandler? LanIpChanged;
+    // ویژگی «ورود اطلاعات از راه دور» (فرم ثبت شیرخشک روی گوشی): وقتی کاربر روی گوشی یک مقدار
+    // (کد ملی، تاریخ تولد و ...) وارد کرده و «بعدی» را زده، یا وقتی دکمه‌ی نهایی «ثبت» را زده.
+    public event EventHandler<RemoteEntryValueEventArgs>? RemoteEntryValueReceived;
+    public event EventHandler<RemoteEntrySubmitEventArgs>? RemoteEntrySubmitReceived;
+    // وقتی کاربر روی گوشی دکمه‌ی «قبلی» را زده (می‌خواهد به مرحله‌ی قبلِ ویزارد برگردد - مثلاً
+    // چون یک کادر را اشتباه زده).
+    public event EventHandler<RemoteEntryBackEventArgs>? RemoteEntryBackReceived;
 
     public string ComputerId { get; }
     public string ComputerName { get; }
@@ -162,6 +169,9 @@ public sealed class ScanBridgeService : IDisposable
             {
                 string deviceName = "";
                 string barcode = string.Empty;
+                string messageType = string.Empty;
+                string remoteEntryStepId = string.Empty;
+                string remoteEntryValue = string.Empty;
 
                 if (_connectedDevices.TryGetValue(socket, out var heartbeatState))
                     heartbeatState.LastSeenUtc = DateTime.UtcNow;
@@ -177,10 +187,44 @@ public sealed class ScanBridgeService : IDisposable
                     {
                         barcode = barcodeProp.GetString() ?? "";
                     }
+                    if (doc.RootElement.TryGetProperty("type", out var typeProp))
+                    {
+                        messageType = typeProp.GetString() ?? "";
+                    }
+                    if (doc.RootElement.TryGetProperty("stepId", out var stepIdProp))
+                    {
+                        remoteEntryStepId = stepIdProp.GetString() ?? "";
+                    }
+                    if (doc.RootElement.TryGetProperty("value", out var valueProp))
+                    {
+                        remoteEntryValue = valueProp.GetString() ?? "";
+                    }
                 }
                 catch
                 {
                     barcode = message?.Trim() ?? string.Empty;
+                }
+
+                // پیام‌های ویژگی «ورود اطلاعات از راه دور» (فرم شیرخشک روی گوشی) کاملاً مستقل از
+                // مسیر عادی بارکد/اسکنر هستند - نه صف می‌شوند نه با اسکن واقعی قاطی می‌شوند؛ در این
+                // پیام‌ها فیلد "barcode" همان بارکد قلم شیرخشکی است که فرمش روی گوشی باز است.
+                if (messageType == "REMOTE_ENTRY_VALUE")
+                {
+                    if (!string.IsNullOrWhiteSpace(barcode) && !string.IsNullOrWhiteSpace(remoteEntryStepId))
+                        RemoteEntryValueReceived?.Invoke(this, new RemoteEntryValueEventArgs(barcode, remoteEntryStepId, remoteEntryValue));
+                    return;
+                }
+                if (messageType == "REMOTE_ENTRY_SUBMIT")
+                {
+                    if (!string.IsNullOrWhiteSpace(barcode))
+                        RemoteEntrySubmitReceived?.Invoke(this, new RemoteEntrySubmitEventArgs(barcode));
+                    return;
+                }
+                if (messageType == "REMOTE_ENTRY_BACK")
+                {
+                    if (!string.IsNullOrWhiteSpace(barcode))
+                        RemoteEntryBackReceived?.Invoke(this, new RemoteEntryBackEventArgs(barcode));
+                    return;
                 }
 
                 if (IsDeviceManuallyBlocked(deviceName))
@@ -717,6 +761,49 @@ public sealed class ScanBridgeService : IDisposable
         }
     }
 
+    /// <summary>
+    /// یک مرحله از فرم ثبت شیرخشک (کد ملی، تاریخ تولد، کپچا و ...) را برای نمایش روی گوشی
+    /// می‌فرستد - بخشی از ویژگی «ورود اطلاعات از راه دور». اگر گوشی‌ای وصل نباشد، بی‌اثر است.
+    /// </summary>
+    public void BroadcastRemoteEntryStep(string barcode, string stepId, string label, string hint,
+        string? photoBase64 = null, string? captchaImageBase64 = null, string inputType = "text", string? prefillValue = null)
+    {
+        var payloadObj = new
+        {
+            type = "REMOTE_ENTRY_STEP",
+            barcode,
+            stepId,
+            label,
+            hint,
+            inputType,
+            photoBase64,
+            captchaImageBase64,
+            prefillValue
+        };
+
+        string json = JsonSerializer.Serialize(payloadObj);
+        foreach (var socket in _connectedDevices.Keys.ToArray())
+        {
+            try { _ = socket.Send(json); }
+            catch (Exception ex) { Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to send remote-entry step to a device: {ex.Message}"); }
+        }
+    }
+
+    /// <summary>
+    /// جریان «ورود اطلاعات از راه دور» را روی گوشی لغو می‌کند (مثلاً چون کاربر خودش فرم را روی
+    /// دسکتاپ بست) - بدون هیچ پیام قابل‌مشاهده‌ای، فقط ویزارد را از روی گوشی پاک می‌کند.
+    /// </summary>
+    public void BroadcastRemoteEntryCancel(string barcode)
+    {
+        var payloadObj = new { type = "REMOTE_ENTRY_CANCEL", barcode };
+        string json = JsonSerializer.Serialize(payloadObj);
+        foreach (var socket in _connectedDevices.Keys.ToArray())
+        {
+            try { _ = socket.Send(json); }
+            catch (Exception ex) { Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to send remote-entry cancel to a device: {ex.Message}"); }
+        }
+    }
+
     public bool AllowDeviceToReconnect(string deviceName)
     {
         if (string.IsNullOrWhiteSpace(deviceName))
@@ -1081,6 +1168,40 @@ public sealed class ScanReceivedEventArgs : EventArgs
     public string Barcode { get; }
     public DateTime TimestampUtc { get; }
     public string DeviceName { get; }
+}
+
+public sealed class RemoteEntryValueEventArgs : EventArgs
+{
+    public RemoteEntryValueEventArgs(string barcode, string stepId, string value)
+    {
+        Barcode = barcode;
+        StepId = stepId;
+        Value = value;
+    }
+
+    public string Barcode { get; }
+    public string StepId { get; }
+    public string Value { get; }
+}
+
+public sealed class RemoteEntrySubmitEventArgs : EventArgs
+{
+    public RemoteEntrySubmitEventArgs(string barcode)
+    {
+        Barcode = barcode;
+    }
+
+    public string Barcode { get; }
+}
+
+public sealed class RemoteEntryBackEventArgs : EventArgs
+{
+    public RemoteEntryBackEventArgs(string barcode)
+    {
+        Barcode = barcode;
+    }
+
+    public string Barcode { get; }
 }
 
 public sealed class ConnectionStateChangedEventArgs : EventArgs
