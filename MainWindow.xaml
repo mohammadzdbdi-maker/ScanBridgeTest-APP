@@ -122,14 +122,31 @@
                                            Text="پیام‌ها" />
                             </Button>
 
-                            <Ellipse x:Name="MessagesBadge"
-                                     Width="12"
-                                     Height="12"
-                                     Fill="#E53935"
-                                     HorizontalAlignment="Left"
-                                     VerticalAlignment="Top"
-                                     Margin="-4,-4,0,0"
-                                     Visibility="Collapsed" />
+                            <!-- شمارنده‌ی پیام‌های خوانده‌نشده - هم‌استایل با CargoDeliveryAlertBadge (نشان‌گر
+                                 «تاریخ نزدیک») طبق درخواست کاربر؛ تا وقتی هر پیام با چک‌باکس «خوانده شد»
+                                 علامت نخورد اینجا شمرده می‌شود (نگاه کنید به UpdateMessagesBadgeCount). -->
+                            <Border x:Name="MessagesBadge"
+                                    Visibility="Collapsed"
+                                    Background="#DC2626"
+                                    BorderBrush="White"
+                                    BorderThickness="2"
+                                    CornerRadius="10"
+                                    MinWidth="20"
+                                    Height="20"
+                                    Padding="4,0"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Top"
+                                    Margin="-8,-8,0,0"
+                                    Panel.ZIndex="10"
+                                    IsHitTestVisible="False">
+                                <TextBlock x:Name="MessagesBadgeText"
+                                           Text="1"
+                                           Foreground="White"
+                                           FontWeight="Bold"
+                                           FontSize="11"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Border>
                         </Grid>
 
                         <!-- Support -->
@@ -420,6 +437,19 @@
                                             </Grid>
                                         </Border>
 
+                                        <!-- فعال‌سازی بانک بارکد پرمصرف (آیکون شناور) - فقط پلن تی‌تک‌پلاس، نمایش/عدم‌نمایش با پلن در ApplyLicenseToUi -->
+                                        <CheckBox x:Name="HighUsageWidgetEnableCheckBox"
+                                                  FontSize="13"
+                                                  Foreground="#333333"
+                                                  Margin="0,14,0,0"
+                                                  Visibility="Collapsed"
+                                                  Checked="HighUsageWidgetEnableCheckBox_Checked"
+                                                  Unchecked="HighUsageWidgetEnableCheckBox_Unchecked">
+                                            <TextBlock x:Name="HighUsageWidgetEnableText"
+                                                       Text="📦 فعال‌سازی بانک بارکد پرمصرف"
+                                                       TextWrapping="Wrap" />
+                                        </CheckBox>
+
                                         <CheckBox x:Name="StartupOnWindowsBootCheckBox"
                                                   FontSize="13"
                                                   Foreground="#333333"
@@ -452,7 +482,7 @@
                         Padding="20"
                         VerticalAlignment="Stretch">
                     <ScrollViewer x:Name="UserPanelScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel>
+                        <StackPanel x:Name="UserPanelButtonsStack">
                             <TextBlock x:Name="UserPanelTitle"
                                    Text="پنل کاربری"
                                    FontSize="22"
@@ -527,6 +557,77 @@
                                            VerticalAlignment="Center" />
                             </Border>
                         </Grid>
+
+                        <!-- باکس پیشرفت دانلود بروزرسانی - قبلاً یک پنجره‌ی جدا (DownloadProgressWindow) بود
+                             که موقعیتش با محاسبه‌ی دستی Left/Top هیچ‌وقت درست از آب در نمی‌آمد (کاربر چند بار
+                             گزارش داد «میره پایین»). به‌جایش این یک Border معمولی است، درست به‌عنوان فرزند
+                             بعدیِ همین ستون دکمه‌ها - بلافاصله بعد از «تاریخ نزدیک» - پس همیشه دقیقاً زیرش
+                             می‌ماند، چون چیدمان طبیعی WPF این را تضمین می‌کند، نه هیچ محاسبه‌ای. نگاه کنید به
+                             ShowDownloadProgressPanel / UpdateDownloadProgressPanel / HideDownloadProgressPanel
+                             در MainWindow.xaml.cs. -->
+                        <Border x:Name="DownloadProgressPanel"
+                                Background="White"
+                                CornerRadius="16"
+                                Margin="0,8"
+                                Padding="14"
+                                Visibility="Collapsed"
+                                BorderBrush="#93C5FD"
+                                BorderThickness="1">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="DownloadProgressTitleText"
+                                               Grid.Column="0"
+                                               Text="⬇ دانلود بروزرسانی"
+                                               FontSize="13"
+                                               FontWeight="Bold"
+                                               Foreground="#1A237E"
+                                               TextWrapping="Wrap"
+                                               VerticalAlignment="Center" />
+                                    <Button x:Name="DownloadProgressCancelButton"
+                                            Grid.Column="1"
+                                            Content="✕"
+                                            Click="DownloadProgressCancelButton_Click"
+                                            Style="{StaticResource RoundedButtonStyle}"
+                                            Background="#F3F4F6"
+                                            Foreground="#6B7280"
+                                            Width="26"
+                                            Height="26"
+                                            Padding="0"
+                                            FontSize="11"
+                                            Margin="8,0,0,0" />
+                                </Grid>
+                                <ProgressBar x:Name="DownloadProgressBar"
+                                             Height="10"
+                                             Minimum="0"
+                                             Maximum="100"
+                                             Value="0"
+                                             IsIndeterminate="True"
+                                             Foreground="#1565C0"
+                                             Background="#E5E7EB"
+                                             BorderThickness="0" />
+                                <Grid Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="DownloadProgressSizeText"
+                                               Grid.Column="0"
+                                               Text=""
+                                               FontSize="11"
+                                               Foreground="#6B7280" />
+                                    <TextBlock x:Name="DownloadProgressPercentText"
+                                               Grid.Column="1"
+                                               Text="در حال شروع..."
+                                               FontSize="11"
+                                               FontWeight="Bold"
+                                               Foreground="#1565C0" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
 
                         <Button x:Name="ReceiveStatusPanelButton"
                                 Click="ReceiveStatusPanelButton_Click"
@@ -630,6 +731,19 @@
                             Background="#1565C0"
                             FontSize="16"
                             Height="46"
+                            Margin="0,0,0,10" />
+
+                    <!-- گزارش تشخیصی: یک فایل متنی شامل نسخه‌ی برنامه، شناسه‌ی سیستم، وضعیت لایسنس و
+                         آخرین خطاهای ثبت‌شده (startup-trace.log/startup-error.log) می‌سازد و روی دسکتاپ
+                         ذخیره می‌کند - تا داروخانه بتواند همان را برای پشتیبانی (واتساپ) بفرستد و پشتیبانی
+                         بدون نیاز به اتصال از راه دور بفهمد سیستم دقیقاً چه مشکلی دارد. -->
+                    <Button x:Name="SupportDiagnosticsReportButton"
+                            Click="SupportDiagnosticsReportButton_Click"
+                            Style="{StaticResource RoundedButtonStyle}"
+                            Content="📋 ساخت گزارش تشخیصی برای پشتیبانی"
+                            Background="#0F766E"
+                            FontSize="14"
+                            Height="42"
                             Margin="0,0,0,16" />
                     <Button x:Name="SupportOverlayCloseButton"
                             Click="SupportOverlayCloseButton_Click"
@@ -801,16 +915,57 @@
                     <ItemsControl x:Name="MessagesList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="#F9FAFB"
+                                <Border Background="{Binding CardBackground}"
+                                        BorderBrush="{Binding CardBorderBrush}"
+                                        BorderThickness="1.5"
                                         CornerRadius="14"
                                         Padding="14"
                                         Margin="0,0,0,10">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding Title}"
-                                                   FontWeight="Bold"
-                                                   Foreground="#111827"
-                                                   FontSize="15"
-                                                   TextWrapping="Wrap" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding Title}"
+                                                       FontWeight="Bold"
+                                                       Foreground="#111827"
+                                                       FontSize="15"
+                                                       TextWrapping="Wrap"
+                                                       VerticalAlignment="Center" />
+
+                                            <!-- دکمه‌ی «باشه» - جایگزین چک‌باکس قبلی «خوانده شد» طبق درخواست
+                                                 کاربر: پیام را خوانده‌شده علامت می‌زند و با یک محوشدنِ نرم
+                                                 (fade-out) کاملاً از لیست حذف می‌کند (نگاه کنید به
+                                                 MessageAcknowledgeButton_Click در code-behind). -->
+                                            <Button Grid.Column="1"
+                                                    Content="باشه"
+                                                    Click="MessageAcknowledgeButton_Click"
+                                                    Style="{StaticResource RoundedButtonStyle}"
+                                                    Background="#ECFDF5"
+                                                    Foreground="#10B981"
+                                                    Padding="10,4"
+                                                    FontSize="12"
+                                                    VerticalAlignment="Center"
+                                                    Margin="10,0,0,0" />
+
+                                            <!-- دکمه‌ی «حذف» - طبق درخواست کاربر، کنار دکمه‌ی «باشه» - پیام را
+                                                 فوراً (بدون fade) از لیست و از notifications.json پاک می‌کند
+                                                 (نگاه کنید به MessageDeleteButton_Click در code-behind). -->
+                                            <Button Grid.Column="2"
+                                                    Content="حذف"
+                                                    Click="MessageDeleteButton_Click"
+                                                    Style="{StaticResource RoundedButtonStyle}"
+                                                    Background="#FEE2E2"
+                                                    Foreground="#DC2626"
+                                                    Padding="10,4"
+                                                    FontSize="12"
+                                                    VerticalAlignment="Center"
+                                                    Margin="8,0,0,0" />
+                                        </Grid>
 
                                         <TextBlock Text="{Binding Body}"
                                                    Foreground="#4B5563"
@@ -818,7 +973,7 @@
                                                    Margin="0,6,0,0"
                                                    TextWrapping="Wrap" />
 
-                                        <Button Content="{Binding DataContext.MessageLinkButtonText, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        <Button Content="{Binding LinkButtonText}"
                                                 Visibility="{Binding HasLinkVisibility}"
                                                 Click="MessageLink_Click"
                                                 Tag="{Binding Link}"
@@ -839,6 +994,68 @@
                                FontSize="14"
                                HorizontalAlignment="Center"
                                Margin="0,10,0,0" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Update Confirm Overlay - تایید «دانلود؟» / «نصب و راه‌اندازی مجدد؟» برای بروزرسانی دسکتاپ.
+             قبلاً یک پنجره‌ی جدای HighUsageConfirmWindow بود؛ طبق درخواست کاربر («این پیغام یه پنجره
+             جدید نباشه، بیارش توی برنامه») به یک Overlay داخل خودِ MainWindow تبدیل شد - نگاه کنید به
+             ShowUpdateConfirmOverlayAsync در MainWindow.xaml.cs که با TaskCompletionSource منتظر
+             کلیک کاربر می‌ماند. Panel.ZIndex بالا دارد تا حتی وقتی MessagesOverlay هم باز است، بالاتر
+             دیده شود. -->
+        <Grid x:Name="UpdateConfirmOverlay"
+              Background="#80000000"
+              Visibility="Collapsed"
+              Panel.ZIndex="50"
+              MouseDown="UpdateConfirmOverlay_MouseDown">
+            <!-- Width/Padding/CornerRadius عمداً دقیقاً همان مقادیر کارتِ MessagesOverlay است (طبق
+                 درخواست صریح کاربر: «این دو تا کادر دقیقا هم اندازه باشن») - چون این تاییدیه معمولاً
+                 درست روی همان پنجره‌ی پیام‌ها باز می‌شود، اندازه‌ی متفاوت به چشم می‌آمد. -->
+            <Border Background="White"
+                    CornerRadius="24"
+                    Padding="28"
+                    Width="560"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    MouseDown="UpdateConfirmCard_MouseDown">
+                <StackPanel>
+                    <TextBlock x:Name="UpdateConfirmTitleText"
+                               FontSize="15"
+                               FontWeight="Bold"
+                               Foreground="#B91C1C"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,8" />
+
+                    <TextBlock x:Name="UpdateConfirmMessageText"
+                               FontSize="13"
+                               Foreground="#374151"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,4" />
+
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Left"
+                                Margin="0,16,0,0">
+                        <Button x:Name="UpdateConfirmYesButton"
+                                Click="UpdateConfirmYesButton_Click"
+                                Style="{StaticResource RoundedButtonStyle}"
+                                Background="#DC2626"
+                                Foreground="White"
+                                FontWeight="Bold"
+                                Width="140"
+                                Height="38"
+                                FontSize="13"
+                                Margin="0,0,8,0" />
+
+                        <Button x:Name="UpdateConfirmNoButton"
+                                Click="UpdateConfirmNoButton_Click"
+                                Style="{StaticResource RoundedButtonStyle}"
+                                Background="#F3F4F6"
+                                Foreground="#374151"
+                                Width="90"
+                                Height="38"
+                                FontSize="13" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
         </Grid>
@@ -3339,6 +3556,8 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="16" />
                                 <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
 
                             <!-- Language (فشرده) -->
@@ -3413,6 +3632,35 @@
                                             Click="AllowDeviceReconnectButton_Click"
                                             Style="{StaticResource RoundedButtonStyle}"
                                             Background="#10B981"
+                                            Padding="10,8"
+                                            FontSize="13"
+                                            Height="38" />
+                                </StackPanel>
+                            </Border>
+
+                            <!-- بروزرسانی برنامه (فشرده) - بررسی دستی، جدا از بررسی خودکار روزانه (نگاه
+                                 کنید به CheckForAppUpdateAsync در MainWindow.xaml.cs). -->
+                            <Border Grid.Column="6"
+                                    Background="#EEF2FF"
+                                    CornerRadius="14"
+                                    Padding="14">
+                                <StackPanel VerticalAlignment="Top">
+                                    <TextBlock x:Name="AppUpdateSectionTitle"
+                                               Text="🔄 بروزرسانی"
+                                               FontSize="14"
+                                               FontWeight="Bold"
+                                               Foreground="#4338CA"
+                                               Margin="0,0,0,6" />
+                                    <TextBlock x:Name="AppUpdateCurrentVersionText"
+                                               FontSize="11"
+                                               Foreground="#4B5563"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,10" />
+                                    <Button x:Name="CheckForUpdateButton"
+                                            Content="بررسی بروزرسانی"
+                                            Click="CheckForUpdateButton_Click"
+                                            Style="{StaticResource RoundedButtonStyle}"
+                                            Background="#6366F1"
                                             Padding="10,8"
                                             FontSize="13"
                                             Height="38" />
@@ -3531,37 +3779,6 @@
                                         </StackPanel>
                                     </Border>
                                 </Grid>
-                            </StackPanel>
-                        </Border>
-
-                        <!-- ردیف: بانک بارکد پرمصرف (آیکون شناور) -->
-                        <Border x:Name="HighUsageBarcodeSettingsSection"
-                                Background="#FFF7ED"
-                                CornerRadius="14"
-                                Padding="16"
-                                Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock x:Name="HighUsageBarcodeSectionTitle"
-                                           Text="📦 بانک بارکد پرمصرف"
-                                           FontSize="16"
-                                           FontWeight="Bold"
-                                           Foreground="#C2410C"
-                                           Margin="0,0,0,4" />
-                                <TextBlock x:Name="HighUsageBarcodeSectionDescription"
-                                           Text="برای بارکدهایی که هر روز زیاد استفاده می‌کنید (مثل سرم‌ها یا آنتی‌بیوتیک‌ها) یک بانک بسازید و با یک کلیک، بارکد را در هر برنامه‌ی دیگری که باز است وارد کنید."
-                                           FontSize="12"
-                                           Foreground="#4B5563"
-                                           TextWrapping="Wrap"
-                                           Margin="0,0,0,10" />
-                                <CheckBox x:Name="HighUsageWidgetEnableCheckBox"
-                                          FontSize="13"
-                                          Foreground="#333333"
-                                          Checked="HighUsageWidgetEnableCheckBox_Checked"
-                                          Unchecked="HighUsageWidgetEnableCheckBox_Unchecked">
-                                    <TextBlock x:Name="HighUsageWidgetEnableText"
-                                               Text="نمایش آیکون شناور بانک بارکد پرمصرف روی صفحه"
-                                               TextWrapping="Wrap" />
-                                </CheckBox>
                             </StackPanel>
                         </Border>
 

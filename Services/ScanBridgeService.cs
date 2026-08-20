@@ -72,6 +72,10 @@ public sealed class ScanBridgeService : IDisposable
     private string _licenseGroupKey = string.Empty;
     private string _lastDesktopSettingsJson = string.Empty;
     private long _lastDesktopSettingsVersionUtcMs;
+    // عکسِ کامل آخرین بانک بارکد پرمصرف - فقط برای هماهنگ‌سازی اولیه‌ی یک سیستم تازه‌وصل‌شده
+    // (bootstrap) استفاده می‌شود؛ به‌روزرسانی زنده/آنی از طریق عملیات‌های تکی رد و بدل می‌شود.
+    private string _lastHighUsageSnapshotJson = string.Empty;
+    private long _lastHighUsageSnapshotVersionUtcMs;
 
     public event EventHandler<ScanReceivedEventArgs>? ScanReceived;
     public event EventHandler<ConnectionStateChangedEventArgs>? ConnectionStatusChanged;
@@ -80,6 +84,11 @@ public sealed class ScanBridgeService : IDisposable
     // وقتی یک سیستم دیگر روی همین شبکه (با همان لایسنس) تنظیمات TtTeck/تاریخ نزدیک/بله را عوض
     // کرده و برای این سیستم فرستاده باشد - یا در پاسخ به درخواست ما - این رویداد فایر می‌شود.
     public event EventHandler<PeerDesktopSettingsEventArgs>? PeerDesktopSettingsReceived;
+    // هماهنگ‌سازی بانک بارکد پرمصرف بین سیستم‌های هم‌شبکه‌ی هم‌لایسنس: یک رویداد برای عملیات‌های
+    // تکی و آنی (اضافه/حذف/دیسپنس یک بارکد - همان لحظه که روی سیستم دیگر اتفاق افتاده)، و یک رویداد
+    // برای عکسِ کامل بانک (فقط موقع هماهنگ‌سازی اولیه‌ی یک سیستم تازه‌وصل‌شده یا تازه‌روشن‌شده).
+    public event EventHandler<HighUsageBarcodeOperationEventArgs>? HighUsageBarcodeOperationReceived;
+    public event EventHandler<HighUsageBarcodeSnapshotEventArgs>? HighUsageBarcodeSnapshotReceived;
     // وقتی IP شبکه‌ی محلی عوض می‌شود (مثلاً از وای‌فای به کابل یا شبکه‌ی دیگر) فایر می‌شود تا
     // برنامه QR اتصال را خودکار دوباره بسازد و IP نمایش‌داده‌شده را به‌روز کند.
     public event EventHandler? LanIpChanged;
@@ -301,6 +310,34 @@ public sealed class ScanBridgeService : IDisposable
         _ = SendAnnounceOnceAsync();
     }
 
+    /// <summary>
+    /// عکسِ کامل فعلی بانک بارکد پرمصرف را به‌عنوان مبنا ذخیره می‌کند (برای پاسخ به درخواست
+    /// هماهنگ‌سازی اولیه‌ی سیستم‌های تازه‌وصل‌شده) - خودش چیزی را «پوش» نمی‌کند، فقط کش می‌کند.
+    /// پوش زنده به همکارها از طریق BroadcastHighUsageBarcodeOperation انجام می‌شود.
+    /// </summary>
+    public void PublishHighUsageBarcodeSnapshot(string payloadJson, long versionUtcMs)
+    {
+        _lastHighUsageSnapshotJson = payloadJson ?? "[]";
+        _lastHighUsageSnapshotVersionUtcMs = versionUtcMs;
+    }
+
+    /// <summary>
+    /// یک عملیات تکی (اضافه/حذف/دیسپنس یک بارکد) را همین الان برای همه‌ی همکارهای شناخته‌شده
+    /// (روی همین شبکه، با همان لایسنس) می‌فرستد - جدا از عکسِ کامل بانک، برای این‌که تغییرات با
+    /// حداقل تاخیر به بقیه‌ی سیستم‌ها برسد (مهم برای جلوگیری از دیسپنس دوباره‌ی یک بارکد فیزیکی
+    /// یکسان روی دو سیستم هم‌زمان).
+    /// </summary>
+    public void BroadcastHighUsageBarcodeOperation(string opJson)
+    {
+        if (string.IsNullOrWhiteSpace(_licenseGroupKey) || string.IsNullOrWhiteSpace(opJson))
+            return;
+
+        foreach (var peer in _knownPeers.Values.ToArray())
+        {
+            _ = PushHighUsageOperationToPeerAsync(peer, opJson);
+        }
+    }
+
     private void StartPeerSync()
     {
         try
@@ -370,6 +407,42 @@ public sealed class ScanBridgeService : IDisposable
                 };
                 try { _ = socket.Send(JsonSerializer.Serialize(responseObj)); } catch { }
             }
+            // یک عملیات تکی و آنی (اضافه/حذف/دیسپنس یک بارکد) از یک سیستم هم‌شبکه رسیده - بدون
+            // مقایسه‌ی نسخه (خودِ عملیات‌ها با شناسه اعمال می‌شوند، پس تکراری بودن بی‌ضرر است؛
+            // نگاه کنید به ApplyHighUsageBarcodeOperation در MainWindow).
+            else if (type == "SCANBRIDGE_HIGHUSAGE_OP")
+            {
+                string fromComputerId = doc.RootElement.TryGetProperty("computerId", out var opCid) ? opCid.GetString() ?? string.Empty : string.Empty;
+                string opPayload = doc.RootElement.TryGetProperty("op", out var opProp) ? opProp.GetRawText() : "{}";
+                HighUsageBarcodeOperationReceived?.Invoke(this, new HighUsageBarcodeOperationEventArgs(opPayload, fromComputerId));
+            }
+            // عکسِ کامل بانک از یک سیستم هم‌شبکه رسیده - فقط برای هماهنگ‌سازی اولیه استفاده می‌شود؛
+            // نسخه‌ی بزرگ‌تر برنده است (مثل تنظیمات).
+            else if (type == "SCANBRIDGE_HIGHUSAGE_SNAPSHOT_SYNC")
+            {
+                string fromComputerId = doc.RootElement.TryGetProperty("computerId", out var snCid) ? snCid.GetString() ?? string.Empty : string.Empty;
+                long version = doc.RootElement.TryGetProperty("versionUtcMs", out var snV) && snV.TryGetInt64(out var snVv) ? snVv : 0;
+                string payload = doc.RootElement.TryGetProperty("payload", out var snP) ? snP.GetRawText() : "[]";
+
+                if (version > _lastHighUsageSnapshotVersionUtcMs)
+                {
+                    _lastHighUsageSnapshotJson = payload;
+                    _lastHighUsageSnapshotVersionUtcMs = version;
+                    HighUsageBarcodeSnapshotReceived?.Invoke(this, new HighUsageBarcodeSnapshotEventArgs(payload, version, fromComputerId));
+                }
+            }
+            else if (type == "SCANBRIDGE_HIGHUSAGE_SNAPSHOT_REQUEST" && _lastHighUsageSnapshotVersionUtcMs > 0)
+            {
+                var responseObj = new
+                {
+                    type = "SCANBRIDGE_HIGHUSAGE_SNAPSHOT_SYNC",
+                    groupKey = _licenseGroupKey,
+                    computerId = ComputerId,
+                    versionUtcMs = _lastHighUsageSnapshotVersionUtcMs,
+                    payload = JsonDocument.Parse(string.IsNullOrWhiteSpace(_lastHighUsageSnapshotJson) ? "[]" : _lastHighUsageSnapshotJson).RootElement
+                };
+                try { _ = socket.Send(JsonSerializer.Serialize(responseObj)); } catch { }
+            }
         }
         catch { }
     }
@@ -412,6 +485,12 @@ public sealed class ScanBridgeService : IDisposable
                     _ = RequestDesktopSettingsFromPeerAsync(peer);
                     if (_lastDesktopSettingsVersionUtcMs > 0)
                         _ = PushDesktopSettingsToPeerAsync(peer, _lastDesktopSettingsJson, _lastDesktopSettingsVersionUtcMs);
+
+                    // همان کار برای بانک بارکد پرمصرف - هماهنگ‌سازی اولیه‌ی دوطرفه با یک سیستم
+                    // تازه‌پیدا‌شده (بعد از این، به‌روزرسانی‌های زنده از طریق عملیات‌های تکی می‌آیند).
+                    _ = RequestHighUsageSnapshotFromPeerAsync(peer);
+                    if (_lastHighUsageSnapshotVersionUtcMs > 0)
+                        _ = PushHighUsageSnapshotToPeerAsync(peer, _lastHighUsageSnapshotJson, _lastHighUsageSnapshotVersionUtcMs);
                 }
             }
             catch (OperationCanceledException) { }
@@ -540,6 +619,129 @@ public sealed class ScanBridgeService : IDisposable
         catch (Exception ex)
         {
             Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to request settings from peer {peer.ComputerId}: {ex.Message}");
+        }
+    }
+
+    private async Task PushHighUsageOperationToPeerAsync(PeerInfo peer, string opJson)
+    {
+        if (string.IsNullOrWhiteSpace(_licenseGroupKey) || string.IsNullOrWhiteSpace(opJson))
+            return;
+
+        try
+        {
+            using var ws = new ClientWebSocket();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+            await ws.ConnectAsync(new Uri($"ws://{peer.Ip}:{PeerSyncPort}"), cts.Token);
+
+            var messageObj = new
+            {
+                type = "SCANBRIDGE_HIGHUSAGE_OP",
+                groupKey = _licenseGroupKey,
+                computerId = ComputerId,
+                op = JsonDocument.Parse(opJson).RootElement
+            };
+            byte[] bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(messageObj));
+            await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
+            try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token); } catch { }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to push high-usage-barcode operation to peer {peer.ComputerId}: {ex.Message}");
+        }
+    }
+
+    private async Task PushHighUsageSnapshotToPeerAsync(PeerInfo peer, string payloadJson, long versionUtcMs)
+    {
+        if (string.IsNullOrWhiteSpace(_licenseGroupKey) || string.IsNullOrWhiteSpace(payloadJson))
+            return;
+
+        try
+        {
+            using var ws = new ClientWebSocket();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            await ws.ConnectAsync(new Uri($"ws://{peer.Ip}:{PeerSyncPort}"), cts.Token);
+
+            var messageObj = new
+            {
+                type = "SCANBRIDGE_HIGHUSAGE_SNAPSHOT_SYNC",
+                groupKey = _licenseGroupKey,
+                computerId = ComputerId,
+                versionUtcMs,
+                payload = JsonDocument.Parse(payloadJson).RootElement
+            };
+            byte[] bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(messageObj));
+            await ws.SendAsync(bytes, WebSocketMessageType.Text, true, cts.Token);
+            try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token); } catch { }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to push high-usage-barcode snapshot to peer {peer.ComputerId}: {ex.Message}");
+        }
+    }
+
+    // بانک بارکد پرمصرف می‌تواند خیلی بزرگ باشد (مثلاً هزار بارکد سرم) - برخلاف پیام‌های کوچک
+    // تنظیمات، ممکن است در یک فریم/بافر ۱۶ کیلوبایتی جا نشود. برخلاف RequestDesktopSettingsFromPeerAsync
+    // (که یک ReceiveAsync تکی کافی بود چون همیشه کوچک است)، اینجا تا رسیدن به انتهای پیام
+    // (EndOfMessage) در یک حلقه می‌خوانیم تا هیچ داده‌ای برش نخورد.
+    private static async Task<string?> ReceiveFullTextMessageAsync(ClientWebSocket ws, CancellationToken ct)
+    {
+        var buffer = new byte[16384];
+        using var stream = new MemoryStream();
+        while (true)
+        {
+            var result = await ws.ReceiveAsync(buffer, ct);
+            if (result.MessageType == WebSocketMessageType.Close)
+                return null;
+            if (result.Count > 0)
+                stream.Write(buffer, 0, result.Count);
+            if (result.EndOfMessage)
+                break;
+        }
+        return stream.Length > 0 ? Encoding.UTF8.GetString(stream.ToArray()) : null;
+    }
+
+    private async Task RequestHighUsageSnapshotFromPeerAsync(PeerInfo peer)
+    {
+        if (string.IsNullOrWhiteSpace(_licenseGroupKey))
+            return;
+
+        try
+        {
+            using var ws = new ClientWebSocket();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await ws.ConnectAsync(new Uri($"ws://{peer.Ip}:{PeerSyncPort}"), cts.Token);
+
+            var requestObj = new { type = "SCANBRIDGE_HIGHUSAGE_SNAPSHOT_REQUEST", groupKey = _licenseGroupKey, computerId = ComputerId };
+            byte[] requestBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(requestObj));
+            await ws.SendAsync(requestBytes, WebSocketMessageType.Text, true, cts.Token);
+
+            string? json = await ReceiveFullTextMessageAsync(ws, cts.Token);
+            if (!string.IsNullOrEmpty(json))
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("type", out var t) && t.GetString() == "SCANBRIDGE_HIGHUSAGE_SNAPSHOT_SYNC")
+                {
+                    string groupKey = doc.RootElement.TryGetProperty("groupKey", out var gk) ? gk.GetString() ?? string.Empty : string.Empty;
+                    if (string.Equals(groupKey, _licenseGroupKey, StringComparison.Ordinal))
+                    {
+                        long version = doc.RootElement.TryGetProperty("versionUtcMs", out var v) && v.TryGetInt64(out var vv) ? vv : 0;
+                        string payload = doc.RootElement.TryGetProperty("payload", out var p) ? p.GetRawText() : "[]";
+                        string fromComputerId = doc.RootElement.TryGetProperty("computerId", out var cid) ? cid.GetString() ?? string.Empty : string.Empty;
+
+                        if (version > _lastHighUsageSnapshotVersionUtcMs)
+                        {
+                            _lastHighUsageSnapshotJson = payload;
+                            _lastHighUsageSnapshotVersionUtcMs = version;
+                            HighUsageBarcodeSnapshotReceived?.Invoke(this, new HighUsageBarcodeSnapshotEventArgs(payload, version, fromComputerId));
+                        }
+                    }
+                }
+            }
+            try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token); } catch { }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to request high-usage-barcode snapshot from peer {peer.ComputerId}: {ex.Message}");
         }
     }
 
@@ -1219,6 +1421,32 @@ public sealed class ConnectionStateChangedEventArgs : EventArgs
 public sealed class PeerDesktopSettingsEventArgs : EventArgs
 {
     public PeerDesktopSettingsEventArgs(string payloadJson, long versionUtcMs, string fromComputerId)
+    {
+        PayloadJson = payloadJson;
+        VersionUtcMs = versionUtcMs;
+        FromComputerId = fromComputerId;
+    }
+
+    public string PayloadJson { get; }
+    public long VersionUtcMs { get; }
+    public string FromComputerId { get; }
+}
+
+public sealed class HighUsageBarcodeOperationEventArgs : EventArgs
+{
+    public HighUsageBarcodeOperationEventArgs(string opJson, string fromComputerId)
+    {
+        OpJson = opJson;
+        FromComputerId = fromComputerId;
+    }
+
+    public string OpJson { get; }
+    public string FromComputerId { get; }
+}
+
+public sealed class HighUsageBarcodeSnapshotEventArgs : EventArgs
+{
+    public HighUsageBarcodeSnapshotEventArgs(string payloadJson, long versionUtcMs, string fromComputerId)
     {
         PayloadJson = payloadJson;
         VersionUtcMs = versionUtcMs;

@@ -13,6 +13,7 @@ using System.Text.RegularExpressions;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -130,6 +131,9 @@ nQIDAQAB
     private string? _ttacAccessTokenOverride;
     private string _ttacPharmacyDisplayName = string.Empty;
     private DateTime _ttacAccessTokenExpiresAtUtc = DateTime.MinValue;
+    // برای تشخیص لحظه‌ی دقیق «تمام شدن» توکن تی‌تک (نه فقط وضعیت لحظه‌ای) - هر ثانیه با تیک تایمر
+    // شمارش معکوس مقایسه می‌شود تا فقط دقیقاً همان لحظه‌ی گذار از معتبر به نامعتبر یک بار اطلاع‌رسانی شود.
+    private bool _ttacTokenWasValidLastCheck;
     private readonly System.Windows.Threading.DispatcherTimer _ttacTokenCountdownTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly HttpClient _ttacHttpClient = new();
     private readonly List<TtacRegistrationHistoryEntry> _ttacRegistrationHistory = new();
@@ -163,6 +167,14 @@ nQIDAQAB
     // چه نباشد) بالای لیست پین می‌شوند؛ این فیلتر فقط اقلام «اضافه‌ی» دیگر را کنترل می‌کند.
     private bool _expiryFilterActive;
     private readonly System.Windows.Threading.DispatcherTimer _expiryAlertCheckTimer = new() { Interval = TimeSpan.FromHours(6) };
+
+    // بررسی بروزرسانی برنامه: یک فایل JSON ساده روی سایت ({"version","message","url"}) - همان
+    // الگویی که اپ اندروید هم برای «پیام‌ها»/بروزرسانی استفاده می‌کند (UPDATE_CHECK_URL در
+    // MainActivity.kt). هیچ سرور اختصاصی لازم نیست؛ بعد از هر انتشار نسخه‌ی جدید کافی است همین
+    // یک فایل روی سایت بازنویسی شود. نگاه کنید به CheckForAppUpdateAsync.
+    private readonly HttpClient _updateCheckHttpClient = new();
+    private readonly System.Windows.Threading.DispatcherTimer _appUpdateCheckTimer = new() { Interval = TimeSpan.FromHours(24) };
+    private const string AppUpdateCheckUrl = "https://scanbridge.ir/app/update-desktop.json";
     private bool _openReceiveStatusAfterStyledMessageClose = false;
     private string _receiveStatusBarcodeAfterStyledMessageClose = string.Empty;
     private string _receiveStatusLoadedPharmacyKey = string.Empty;
@@ -269,7 +281,7 @@ nQIDAQAB
         TraceMainWindowStartup("UpdateLanguageUI start");
         UpdateLanguageUI();
         TraceMainWindowStartup("UpdateLanguageUI done");
-        _ttacTokenCountdownTimer.Tick += (_, _) => UpdateTtacConnectionStatusUI();
+        _ttacTokenCountdownTimer.Tick += (_, _) => TtacTokenCountdownTick();
         _ttacTokenCountdownTimer.Start();
         
         _localization.LanguageChanged += (_, _) => 
@@ -344,6 +356,21 @@ nQIDAQAB
                 {
                     await Task.Delay(8000);
                     await CheckExpiryAlertsAsync();
+                }
+                catch { }
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
+            // بررسی بروزرسانی: یک بار چند ثانیه بعد از بالا آمدن برنامه، و بعد هر ۲۴ ساعت یک‌بار
+            // دیگر (چون ممکن است برنامه روزها بدون بسته شدن باز بماند - داروخانه‌ها معمولاً برنامه
+            // را در طول روز کاری باز نگه می‌دارند).
+            _appUpdateCheckTimer.Tick += async (_, _) => await CheckForAppUpdateAsync(manualTrigger: false);
+            _appUpdateCheckTimer.Start();
+            _ = Dispatcher.BeginInvoke(new Action(async () =>
+            {
+                try
+                {
+                    await Task.Delay(5000);
+                    await CheckForAppUpdateAsync(manualTrigger: false);
                 }
                 catch { }
             }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
@@ -453,6 +480,11 @@ nQIDAQAB
         _service.RemoteEntryValueReceived += (_, args) => HandleRemoteEntryValueFromPhone(args.Barcode, args.StepId, args.Value);
         _service.RemoteEntrySubmitReceived += (_, args) => HandleRemoteEntrySubmitFromPhone(args.Barcode);
         _service.RemoteEntryBackReceived += (_, args) => HandleRemoteEntryBackFromPhone(args.Barcode);
+
+        // همگام‌سازی بانک بارکد پرمصرف بین چند سیستم هم‌شبکه با همان لایسنس - نگاه کنید به
+        // MainWindow.HighUsageBarcode.cs (ApplyHighUsageBarcodeOperation/ApplyHighUsageBarcodeSnapshot).
+        _service.HighUsageBarcodeOperationReceived += (_, args) => ApplyHighUsageBarcodeOperation(args.OpJson, args.FromComputerId);
+        _service.HighUsageBarcodeSnapshotReceived += (_, args) => ApplyHighUsageBarcodeSnapshot(args.PayloadJson, args.VersionUtcMs, args.FromComputerId);
 
         TraceMainWindowStartup("MainWindow constructor completed");
     }
@@ -965,6 +997,38 @@ nQIDAQAB
         return !string.IsNullOrWhiteSpace(_ttacAccessTokenOverride) && DateTime.UtcNow < _ttacAccessTokenExpiresAtUtc;
     }
 
+    // با هر تیک تایمر شمارش معکوس (هر ثانیه) صدا زده می‌شود. اگر دقیقاً همین بین این تیک و تیک قبلی
+    // توکن تی‌تک از حالت معتبر به نامعتبر رفته باشد (یعنی واقعاً «تمام شده»، نه این‌که از اول متصل نبوده)
+    // هم روی سیستم هم روی گوشیِ متصل پیغام «توکن تمام شد» نشان داده می‌شود.
+    private void TtacTokenCountdownTick()
+    {
+        UpdateTtacTokenValidityTracking(HasValidTtacToken());
+        UpdateTtacConnectionStatusUI();
+    }
+
+    // suppressExpiryNotification: وقتی خودِ کاربر آگاهانه قطع اتصال می‌کند یا داروخانه را عوض می‌کند
+    // (که پیغام مخصوص به خودش را دارد)، این گذار نباید دوباره پیغام «توکن تمام شد» را نشان دهد.
+    private void UpdateTtacTokenValidityTracking(bool isValidNow, bool suppressExpiryNotification = false)
+    {
+        if (_ttacTokenWasValidLastCheck && !isValidNow && !suppressExpiryNotification && HasLicenseModule("ttac"))
+        {
+            NotifyTtacTokenExpired();
+        }
+        _ttacTokenWasValidLastCheck = isValidNow;
+    }
+
+    private void NotifyTtacTokenExpired()
+    {
+        try
+        {
+            string title = _localization.GetString("TtacTokenExpiredTitle");
+            string message = _localization.GetString("TtacTokenExpiredMessage");
+            ShowStyledMessage(title, message, true);
+            _service?.BroadcastAlert(title, message, false);
+        }
+        catch { }
+    }
+
     private void UpdateTtacConnectionStatusUI()
     {
         if (FindName("TtacConnectionStatusPanel") is not Border panel ||
@@ -1046,6 +1110,7 @@ nQIDAQAB
         _ttacAccessTokenOverride = null;
         _ttacPharmacyDisplayName = string.Empty;
         _ttacAccessTokenExpiresAtUtc = DateTime.MinValue;
+        UpdateTtacTokenValidityTracking(false, suppressExpiryNotification: true);
         _pendingTtacRetryAction = null;
         _pendingTtacRetryLabel = null;
         _pendingTtacAutofillUsername = null;
@@ -8211,6 +8276,7 @@ nQIDAQAB
             _ttacAccessTokenOverride = null;
             _ttacPharmacyDisplayName = string.Empty;
             _ttacAccessTokenExpiresAtUtc = DateTime.MinValue;
+            UpdateTtacTokenValidityTracking(false);
             sessionExpired = true;
             UpdateTtacConnectionStatusUI();
         }
@@ -10045,11 +10111,11 @@ nQIDAQAB
         inlines.Add(new Run(message.Substring(patientGroup.Index + patientGroup.Length)));
     }
 
-    private void ShowStyledMessage(string title, string message, bool isError = false, bool showFormulaRepeat = false, string? linkUrl = null, string? photoPath = null, string? customIcon = null)
+    private void ShowStyledMessage(string title, string message, bool isError = false, bool showFormulaRepeat = false, string? linkUrl = null, string? photoPath = null, string? customIcon = null, string? linkButtonText = null)
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(new Action(() => ShowStyledMessage(title, message, isError, showFormulaRepeat, linkUrl, photoPath)));
+            Dispatcher.BeginInvoke(new Action(() => ShowStyledMessage(title, message, isError, showFormulaRepeat, linkUrl, photoPath, customIcon, linkButtonText)));
             return;
         }
 
@@ -10097,7 +10163,7 @@ nQIDAQAB
         // این داروخانه نیست» نشان داده شود، `PopulateStyledMessagePharmacyList` آن را آشکار می‌کند.
         StyledMessagePharmacyListBorder.Visibility = Visibility.Collapsed;
         _styledMessageLinkUrl = !string.IsNullOrWhiteSpace(linkUrl) ? linkUrl! : ExtractFirstUrl(message);
-        StyledMessageLinkButton.Content = _localization.GetString("OpenLink3");
+        StyledMessageLinkButton.Content = !string.IsNullOrWhiteSpace(linkButtonText) ? linkButtonText! : _localization.GetString("OpenLink3");
         StyledMessageLinkButton.Visibility = string.IsNullOrWhiteSpace(_styledMessageLinkUrl) ? Visibility.Collapsed : Visibility.Visible;
 
         _focusTtacMobileAfterStyledMessageClose = isError
@@ -10395,6 +10461,7 @@ nQIDAQAB
             _ttacAccessTokenOverride = null;
             _ttacPharmacyDisplayName = string.Empty;
             _ttacAccessTokenExpiresAtUtc = DateTime.MinValue;
+            UpdateTtacTokenValidityTracking(false, suppressExpiryNotification: true);
             _pendingTtacRetryAction = null;
             _pendingTtacRetryLabel = null;
             _ttacQuickLoginInProgress = false;
@@ -10632,12 +10699,18 @@ nQIDAQAB
                 var items = JsonSerializer.Deserialize<List<AppMessage>>(json) ?? new List<AppMessage>();
                 foreach (var item in items)
                 {
+                    // پیام‌های قدیمی‌تر (یا پیام‌هایی که از بیرون در notifications.json نوشته شده‌اند)
+                    // متن دکمه ندارند - قبلاً این متن از یک property مشترک سطح Window خوانده می‌شد؛
+                    // حالا هر پیام متن دکمه‌ی خودش را دارد (تا پیام بروزرسانی بتواند «دانلود و نصب»
+                    // نشان دهد نه متن عمومی «مشاهده») - نگاه کنید به AppMessage.LinkButtonText.
+                    if (string.IsNullOrEmpty(item.LinkButtonText))
+                        item.LinkButtonText = _localization.GetString("OpenLink2");
                     Messages.Add(item);
                 }
             }
 
             NoMessagesText.Visibility = Messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            MessagesBadge.Visibility = Messages.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            UpdateMessagesBadgeCount();
         }
         catch
         {
@@ -10645,11 +10718,575 @@ nQIDAQAB
         }
     }
 
+    // شمارنده‌ی پیام‌های خوانده‌نشده را روی نشان‌گر قرمز دکمه‌ی «پیام‌ها» به‌روز می‌کند - هر جا لیست
+    // پیام‌ها یا وضعیت خوانده‌شدن یکی از آن‌ها عوض شود باید این متد صدا زده شود (LoadMessages،
+    // CheckForAppUpdateAsync، MessageAcknowledgeButton_Click، RemoveMessage، MessageLink_Click).
+    private void UpdateMessagesBadgeCount()
+    {
+        int unread = Messages.Count(m => !m.IsRead);
+        if (unread <= 0)
+        {
+            MessagesBadge.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            MessagesBadgeText.Text = unread > 9 ? "9+" : unread.ToString();
+            MessagesBadge.Visibility = Visibility.Visible;
+        }
+    }
+
+    // کاربر دکمه‌ی «باشه» یکی از پیام‌ها را زده - جایگزین چک‌باکس قبلی «خوانده شد» طبق درخواست صریح
+    // کاربر: پیام بلافاصله خوانده‌شده علامت می‌خورد (نشان‌گر قرمز فوراً به‌روز می‌شود)، بعد کارتِ همان
+    // پیام با یک محوشدنِ نرم (fade-out ~350ms) کم‌رنگ می‌شود و در پایان انیمیشن کاملاً از لیست حذف
+    // می‌شود - نگاه کنید به RemoveMessage که منطق حذف واقعی (مشترک با دکمه‌ی «حذف») را انجام می‌دهد.
+    private void MessageAcknowledgeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button btn || btn.DataContext is not AppMessage message)
+            return;
+
+        message.IsRead = true;
+        UpdateMessagesBadgeCount();
+        btn.IsEnabled = false;
+
+        if (FindVisualAncestor<Border>(btn) is not Border card)
+        {
+            // اگر به هر دلیلی کارتِ پیام در visual tree پیدا نشد، بدون انیمیشن مستقیم حذفش کن - تا
+            // پیام هیچ‌وقت روی صفحه گیر نکند.
+            RemoveMessage(message);
+            return;
+        }
+
+        var fadeOut = new DoubleAnimation
+        {
+            From = 1.0,
+            To = 0.0,
+            Duration = TimeSpan.FromMilliseconds(350),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn }
+        };
+        fadeOut.Completed += (_, _) => RemoveMessage(message);
+        card.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+    }
+
+    // کاربر دکمه‌ی «حذف» یکی از پیام‌ها را زده - همان RemoveMessage مشترک را بدون انیمیشن (فوری) صدا
+    // می‌زند.
+    private void MessageDeleteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button btn || btn.DataContext is not AppMessage message)
+            return;
+
+        RemoveMessage(message);
+    }
+
+    // حذف واقعی یک پیام - کاملاً از لیست (و در نتیجه از notifications.json، چون SaveMessagesToDisk
+    // همیشه کل Messages فعلی را می‌نویسد) پاک می‌شود. چون Messages یک ObservableCollection است و
+    // ItemsSource همان است (نگاه کنید به سازنده‌ی پنجره)، حذف از این مجموعه خودش MessagesList را
+    // بدون نیاز به Items.Refresh() به‌روز می‌کند. هم دکمه‌ی «باشه» (بعد از fade) و هم دکمه‌ی «حذف»
+    // (فوری) همین متد را صدا می‌زنند تا هر دو مسیر دقیقاً یک‌جور رفتار کنند.
+    private void RemoveMessage(AppMessage message)
+    {
+        // اگر فایل نصب این پیام قبلاً دانلود شده بود، همراه با خودِ پیام از دیسک هم پاکش می‌کنیم - وگرنه
+        // یک فایل نصبِ یتیم روی دیسک کاربر باقی می‌ماند که دیگر هیچ‌جا به آن اشاره نمی‌شود.
+        if (!string.IsNullOrWhiteSpace(message.DownloadedInstallerPath))
+        {
+            try { if (File.Exists(message.DownloadedInstallerPath)) File.Delete(message.DownloadedInstallerPath); } catch { }
+        }
+
+        Messages.Remove(message);
+        SaveMessagesToDisk();
+        UpdateMessagesBadgeCount();
+        NoMessagesText.Visibility = Messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // در visual tree از یک عنصر به بالا می‌رود تا اولین نیای هم‌نوع T را پیدا کند - برای پیدا کردن
+    // Border ریشه‌ی کارتِ پیام از روی دکمه‌ی داخلش (نگاه کنید به MessageAcknowledgeButton_Click).
+    private static T? FindVisualAncestor<T>(DependencyObject start) where T : DependencyObject
+    {
+        DependencyObject? current = VisualTreeHelper.GetParent(start);
+        while (current != null)
+        {
+            if (current is T typed)
+                return typed;
+            current = VisualTreeHelper.GetParent(current);
+        }
+        return null;
+    }
+
+    // بعد از این‌که CheckForAppUpdateAsync پیام بروزرسانی را به Messages اضافه/حذف می‌کند، همان
+    // لیست کامل روی دیسک (notifications.json) هم بازنویسی می‌شود - تا اگر برنامه قبل از چک بعدی
+    // بسته و باز شود، همان پیام (با همان دکمه‌ی «دانلود و نصب») دوباره در لیست باشد، نه این‌که تا
+    // چک روزانه‌ی بعدی گم شود.
+    private void SaveMessagesToDisk()
+    {
+        try
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "notifications.json");
+            File.WriteAllText(path, JsonSerializer.Serialize(Messages.ToList(), new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch { }
+    }
+
+    private static string GetCurrentAppVersionString()
+        => System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
+
+    // بررسی بروزرسانی: یک فایل JSON ساده روی سایت با فرمت {"version": "...", "message": "...",
+    // "url": "..."} می‌خواند (دقیقاً همان فرمتی که اپ اندروید هم برای همین کار استفاده می‌کند - هیچ
+    // سرور اختصاصی/کد سمت سرور جدید لازم نیست، فقط کافی است بعد از هر انتشار نسخه‌ی جدید همین یک
+    // فایل روی سایت، در مسیر AppUpdateCheckUrl، بازنویسی شود). اگر نسخه‌ی داخل فایل از نسخه‌ی
+    // نصب‌شده‌ی همین سیستم جدیدتر باشد، یک پیام (با دکمه‌ی «دانلود و نصب») به «پیام‌ها» اضافه و
+    // نشان‌گر قرمز روی دکمه‌ی پیام‌ها فعال می‌شود. اگر همان نسخه قبلاً اضافه شده (کاربر هنوز
+    // آپدیت نکرده)، دوباره پیام تکراری اضافه نمی‌شود - فقط با انتشار نسخه‌ی جدیدتر دیگری جایگزین
+    // می‌شود؛ همین‌طور اگر کاربر آپدیت کرد (نسخه‌ی این سیستم دیگر قدیمی‌تر از سایت نیست)، پیام
+    // بروزرسانی قبلی از لیست پاک می‌شود.
+    private async Task CheckForAppUpdateAsync(bool manualTrigger)
+    {
+        try
+        {
+            using var response = await _updateCheckHttpClient.GetAsync(AppUpdateCheckUrl);
+            if (!response.IsSuccessStatusCode)
+            {
+                if (manualTrigger)
+                    ShowUpdateCheckFailedMessage();
+                return;
+            }
+
+            string content = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(content);
+            string remoteVersionText = doc.RootElement.TryGetProperty("version", out var vProp) ? vProp.GetString() ?? string.Empty : string.Empty;
+            string updateMessageBody = doc.RootElement.TryGetProperty("message", out var mProp) ? mProp.GetString() ?? string.Empty : string.Empty;
+            string downloadUrl = doc.RootElement.TryGetProperty("url", out var uProp) ? uProp.GetString() ?? string.Empty : string.Empty;
+
+            // فقط «version» برای این‌که بفهمیم درخواست واقعاً موفق بوده و قابل‌مقایسه است لازم است؛
+            // «message»/«url» خالی یعنی سرور جواب داده ولی فعلاً بروزرسانی‌ای تعریف نشده (دقیقاً حالت
+            // پیش‌فرض فایل روی سرور) - این را نباید با شکست واقعی اتصال/سرور یکی گرفت، وگرنه بررسی
+            // دستی همیشه پیغام «ناموفق بود» می‌دهد حتی وقتی همه‌چیز درست کار می‌کند (این باگ همان
+            // چیزی بود که کاربر گزارش داد).
+            if (string.IsNullOrWhiteSpace(remoteVersionText)
+                || !Version.TryParse(remoteVersionText, out var remoteVersion)
+                || !Version.TryParse(GetCurrentAppVersionString(), out var currentVersion))
+            {
+                if (manualTrigger)
+                    ShowUpdateCheckFailedMessage();
+                return;
+            }
+
+            if (remoteVersion <= currentVersion)
+            {
+                var stale = Messages.Where(m => m.IsUpdateDownload).ToList();
+                if (stale.Count > 0)
+                {
+                    foreach (var s in stale)
+                    {
+                        Messages.Remove(s);
+                        // اگر فایل نصب این نسخه‌ی قدیمی روی دیسک مانده (دانلود شده ولی هیچ‌وقت نصب
+                        // نشده)، پاکش می‌کنیم تا فضای دیسک کاربر بی‌دلیل اشغال نماند.
+                        try
+                        {
+                            if (!string.IsNullOrWhiteSpace(s.DownloadedInstallerPath) && File.Exists(s.DownloadedInstallerPath))
+                                File.Delete(s.DownloadedInstallerPath);
+                        }
+                        catch { }
+                    }
+                    NoMessagesText.Visibility = Messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+                    SaveMessagesToDisk();
+                    UpdateMessagesBadgeCount();
+                }
+
+                if (manualTrigger)
+                {
+                    ShowStyledMessage(
+                        _localization.CurrentLanguage == AppLanguage.English ? "Up to date" : "بروزرسانی",
+                        _localization.CurrentLanguage == AppLanguage.English ? "You already have the latest version." : "شما جدیدترین نسخه‌ی برنامه را دارید.",
+                        false);
+                }
+                return;
+            }
+
+            // اینجا یعنی نسخه‌ی روی سایت واقعاً از نسخه‌ی نصب‌شده جدیدتر است - اگر لینک دانلود خالی
+            // مانده (مثلاً نسخه در فایل بالا برده شده ولی لینک هنوز ست نشده)، به‌جای پیام گمراه‌کننده‌ی
+            // «اتصال قطع است»، مشکل واقعی (تنظیمات ناقص روی سایت) گفته می‌شود.
+            if (string.IsNullOrWhiteSpace(downloadUrl))
+            {
+                if (manualTrigger)
+                    ShowStyledMessage(
+                        _localization.CurrentLanguage == AppLanguage.English ? "Update not ready" : "بروزرسانی هنوز آماده نیست",
+                        _localization.CurrentLanguage == AppLanguage.English
+                            ? $"Version {remoteVersionText} is listed on the server but no download link is set yet."
+                            : $"نسخه‌ی {remoteVersionText} روی سایت تعریف شده ولی لینک دانلودش هنوز خالی است.",
+                        true);
+                return;
+            }
+
+            bool alreadyKnown = Messages.Any(m => m.IsUpdateDownload && string.Equals(m.UpdateVersion, remoteVersionText, StringComparison.OrdinalIgnoreCase));
+            if (!alreadyKnown)
+            {
+                var oldUpdates = Messages.Where(m => m.IsUpdateDownload).ToList();
+                foreach (var old in oldUpdates)
+                {
+                    Messages.Remove(old);
+                    // فایل دانلودشده‌ی نسخه‌ی قبلی‌تر (اگر بوده) دیگر لازم نیست - الان نسخه‌ی جدیدتری
+                    // جایگزینش می‌شود.
+                    try
+                    {
+                        if (!string.IsNullOrWhiteSpace(old.DownloadedInstallerPath) && File.Exists(old.DownloadedInstallerPath))
+                            File.Delete(old.DownloadedInstallerPath);
+                    }
+                    catch { }
+                }
+
+                var updateMessage = new AppMessage
+                {
+                    Title = (_localization.CurrentLanguage == AppLanguage.English ? "New version available: " : "نسخه‌ی جدید در دسترس است: ") + remoteVersionText,
+                    Body = updateMessageBody,
+                    Link = downloadUrl,
+                    LinkButtonText = _localization.CurrentLanguage == AppLanguage.English ? "Download & install" : "دانلود و نصب",
+                    IsUpdateDownload = true,
+                    UpdateVersion = remoteVersionText
+                };
+                Messages.Insert(0, updateMessage);
+                NoMessagesText.Visibility = Visibility.Collapsed;
+                SaveMessagesToDisk();
+                UpdateMessagesBadgeCount();
+            }
+            else
+            {
+                // پیام همان نسخه از قبل توی لیست هست - چیزی عوض نشده، فقط شمارنده را دوباره حساب
+                // می‌کنیم (اگر کاربر قبلاً «خوانده شد» زده بود، نباید اینجا دوباره نشان‌گر روشن شود).
+                UpdateMessagesBadgeCount();
+            }
+
+            if (manualTrigger)
+                MessagesButton_Click(this, new RoutedEventArgs());
+        }
+        catch
+        {
+            // بدون اینترنت یا سایت موقتاً در دسترس نبود - بی‌سروصدا نادیده گرفته می‌شود؛ چک بعدی
+            // (روزانه یا دستی) دوباره امتحان می‌کند. داروخانه‌ای که اینترنتش قطع است نباید با پیام
+            // خطا مزاحمش شویم مگر خودش دستی زده باشد «بررسی بروزرسانی».
+            if (manualTrigger)
+                ShowUpdateCheckFailedMessage();
+        }
+    }
+
+    private void ShowUpdateCheckFailedMessage()
+    {
+        ShowStyledMessage(
+            _localization.CurrentLanguage == AppLanguage.English ? "Update check failed" : "بررسی بروزرسانی ناموفق بود",
+            _localization.CurrentLanguage == AppLanguage.English ? "No internet connection, or the update server is unavailable." : "اتصال اینترنت برقرار نیست یا سرور بروزرسانی در دسترس نیست.",
+            true);
+    }
+
+    private void CheckForUpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        // این دکمه داخل TtTeckSettingsOverlay است. اگر همین‌جا بدون بستن تنظیمات، پیام بروزرسانی
+        // را باز کنیم (نگاه کنید به انتهای CheckForAppUpdateAsync)، هر دو overlay هم‌زمان Visible
+        // می‌شوند و بسته به ترتیب آن‌ها در XAML، پیام‌ها ممکن است پشت پنجره‌ی تنظیمات پنهان بماند.
+        // پس اول تنظیمات را می‌بندیم تا پیام همیشه در جلو دیده شود.
+        CloseTtTeckSettings();
+        _ = CheckForAppUpdateAsync(manualTrigger: true);
+    }
+
+    // کاربر روی دکمه‌ی پیام بروزرسانی کلیک کرده. مسیر (بر اساس تست کاربر):
+    //   ۰) اگر همین نسخه قبلاً یک‌بار کامل دانلود شده و فایلش هنوز روی دیسک است (message.DownloadedInstallerPath)،
+    //      اصلاً دوباره دانلود نمی‌کنیم - مستقیم می‌رویم سراغ تایید نصب.
+    //   ۱) وگرنه، تایید قبل از شروع دانلود.
+    //   ۲) دانلود با نمایش پیشرفت در باکسِ درون‌برنامه‌ایِ DownloadProgressPanel (داخل ستون «پنل
+    //      کاربری»، درست زیر «تاریخ نزدیک») که دکمه‌ی «لغو» هم دارد (با CancellationTokenSource دانلود
+    //      واقعاً متوقف و فایل ناقص حذف می‌شود).
+    //   ۳) بعد از اتمام دانلود، یک تاییدِ دوم («نصب و راه‌اندازی مجدد») - نه نصب خودکار فوری - تا
+    //      کاربر خودش زمان بستن برنامه را انتخاب کند؛ همان‌جا مسیر فایل روی پیام ذخیره و متن دکمه از
+    //      «دانلود و نصب» به «نصب» عوض می‌شود تا دفعه‌ی بعد دیگر دانلود نشود.
+    // نصب با فلگ‌های بی‌صدای Inno Setup انجام می‌شود (کاربر تأیید کرد اینستالرشان با Inno Setup ساخته
+    // می‌شود) تا نیازی به کلیک روی صفحات ویزارد Setup نباشد - نگاه کنید به یادداشت‌های داخل
+    // RunSilentInstallAndRestart برای جزئیات /CLOSEAPPLICATIONS و /RESTARTAPPLICATIONS.
+    private async Task StartAppUpdateDownloadAsync(AppMessage message)
+    {
+        string? downloadUrl = message.Link;
+        string? version = message.UpdateVersion;
+        if (string.IsNullOrWhiteSpace(downloadUrl))
+            return;
+
+        // قبلاً همین نسخه دانلود شده - دیگر دوباره دانلود نکن، فقط تایید نصب را نشان بده.
+        if (!string.IsNullOrWhiteSpace(message.DownloadedInstallerPath) && File.Exists(message.DownloadedInstallerPath))
+        {
+            CloseMessagesOverlay();
+            await ConfirmAndRunInstallAsync(message.DownloadedInstallerPath, version);
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        _downloadCts = cts;
+        string? installerPathForCleanup = null;
+        try
+        {
+            string title = _localization.CurrentLanguage == AppLanguage.English ? "Download update" : "دانلود بروزرسانی";
+            string confirmMessage = _localization.CurrentLanguage == AppLanguage.English
+                ? $"Version {version} will be downloaded. When the download finishes you will be asked to install and restart. Continue?"
+                : $"نسخه‌ی {version} دانلود می‌شود. بعد از اتمام دانلود، گزینه‌ی «نصب و راه‌اندازی مجدد» به شما نشان داده خواهد شد. ادامه می‌دهید؟";
+
+            bool confirmed = await ShowUpdateConfirmOverlayAsync(
+                title,
+                confirmMessage,
+                confirmText: _localization.CurrentLanguage == AppLanguage.English ? "Download" : "دانلود",
+                cancelText: _localization.CurrentLanguage == AppLanguage.English ? "Later" : "بعداً");
+            if (!confirmed)
+                return;
+
+            CloseMessagesOverlay();
+
+            string updateFolder = Path.Combine(Path.GetTempPath(), "ScanBridgeUpdate");
+            Directory.CreateDirectory(updateFolder);
+            string fileName = "ScanBridgeSetup" + (string.IsNullOrWhiteSpace(version) ? "" : $"-{version}") + ".exe";
+            string installerPath = Path.Combine(updateFolder, fileName);
+            installerPathForCleanup = installerPath;
+
+            ShowDownloadProgressPanel(version);
+
+            using (var response = await _updateCheckHttpClient.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead, cts.Token))
+            {
+                response.EnsureSuccessStatusCode();
+                long? totalBytes = response.Content.Headers.ContentLength;
+
+                await using var httpStream = await response.Content.ReadAsStreamAsync(cts.Token);
+                await using var fileStream = File.Create(installerPath);
+
+                var buffer = new byte[81920];
+                long readSoFar = 0;
+                int bytesRead;
+                while ((bytesRead = await httpStream.ReadAsync(buffer, cts.Token)) > 0)
+                {
+                    await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cts.Token);
+                    readSoFar += bytesRead;
+
+                    double readMb = readSoFar / 1024.0 / 1024.0;
+                    if (totalBytes.HasValue && totalBytes.Value > 0)
+                    {
+                        double percent = Math.Min(100.0, readSoFar * 100.0 / totalBytes.Value);
+                        double totalMb = totalBytes.Value / 1024.0 / 1024.0;
+                        UpdateDownloadProgressPanel(percent, $"{readMb:0.0} / {totalMb:0.0} MB");
+                    }
+                    else
+                    {
+                        UpdateDownloadProgressPanel(null, $"{readMb:0.0} MB");
+                    }
+                }
+            }
+
+            HideDownloadProgressPanel();
+
+            // دانلود کامل شد - مسیرش را روی خود پیام ذخیره می‌کنیم تا دفعه‌ی بعد که کاربر روی دکمه‌ی
+            // همین پیام کلیک کرد، دیگر دوباره دانلود نشود؛ متن دکمه هم از «دانلود و نصب» به «نصب»
+            // عوض می‌شود چون دیگر واقعاً فقط نصب مانده.
+            message.DownloadedInstallerPath = installerPath;
+            message.LinkButtonText = _localization.CurrentLanguage == AppLanguage.English ? "Install" : "نصب";
+            SaveMessagesToDisk();
+            MessagesList.Items.Refresh();
+
+            await ConfirmAndRunInstallAsync(installerPath, version);
+        }
+        catch (OperationCanceledException)
+        {
+            try { HideDownloadProgressPanel(); } catch { }
+            try { if (installerPathForCleanup != null && File.Exists(installerPathForCleanup)) File.Delete(installerPathForCleanup); } catch { }
+            ShowStyledMessage(
+                _localization.CurrentLanguage == AppLanguage.English ? "Download cancelled" : "دانلود لغو شد",
+                _localization.CurrentLanguage == AppLanguage.English ? "You can start it again anytime from the same message." : "هر وقت خواستید، از همین پیام دوباره می‌توانید شروعش کنید.",
+                false);
+        }
+        catch (Exception ex)
+        {
+            try { HideDownloadProgressPanel(); } catch { }
+            try { CloseStyledMessage(); } catch { }
+            ShowStyledMessage(
+                _localization.CurrentLanguage == AppLanguage.English ? "Update failed" : "بروزرسانی ناموفق بود",
+                (_localization.CurrentLanguage == AppLanguage.English ? "Could not download or start the update: " : "دانلود یا اجرای بروزرسانی ممکن نشد: ") + ex.Message,
+                true);
+        }
+        finally
+        {
+            cts.Dispose();
+            _downloadCts = null;
+        }
+    }
+
+    // تایید «نصب و راه‌اندازی مجدد» را نشان می‌دهد - چه بلافاصله بعد از دانلود، چه (طبق درخواست
+    // کاربر) دفعه‌ی بعدی که فایل از قبل روی دیسک آماده است و نیازی به دانلود دوباره نیست.
+    private async Task ConfirmAndRunInstallAsync(string installerPath, string? version)
+    {
+        string doneTitle = _localization.CurrentLanguage == AppLanguage.English ? "Ready to install" : "آماده‌ی نصب";
+        string doneMessage = _localization.CurrentLanguage == AppLanguage.English
+            ? $"Version {version} is ready to install. Install and restart now? The app will close automatically and reopen with the new version."
+            : $"نسخه‌ی {version} آماده‌ی نصب است. الان نصب و راه‌اندازی مجدد شود؟ برنامه خودش بسته و با نسخه‌ی جدید دوباره باز می‌شود.";
+
+        bool installConfirmed = await ShowUpdateConfirmOverlayAsync(
+            doneTitle,
+            doneMessage,
+            confirmText: _localization.CurrentLanguage == AppLanguage.English ? "Install & restart" : "نصب و راه‌اندازی مجدد",
+            cancelText: _localization.CurrentLanguage == AppLanguage.English ? "Later" : "بعداً");
+
+        if (!installConfirmed)
+        {
+            ShowStyledMessage(
+                _localization.CurrentLanguage == AppLanguage.English ? "Saved for later" : "برای بعد ذخیره شد",
+                _localization.CurrentLanguage == AppLanguage.English ? "You can install it later from the same message in \"Messages\"." : "هر وقت خواستید، از همین پیام توی «پیام‌ها» می‌توانید نصبش کنید.",
+                false);
+            return;
+        }
+
+        RunSilentInstallAndRestart(installerPath);
+    }
+
+    // باکس پیشرفت دانلود دیگر یک پنجره‌ی جدا با موقعیت محاسبه‌شده نیست (آن روش با چند بار تست کاربر
+    // ثابت شد قابل‌اعتماد نیست) - DownloadProgressPanel یک Border معمولی در MainWindow.xaml است که
+    // به‌عنوان فرزندِ همان ستونِ دکمه‌های «پنل کاربری»، بلافاصله بعد از «تاریخ نزدیک» تعریف شده؛ پس
+    // چیدمانِ طبیعیِ WPF خودش جایش را همیشه دقیقاً زیر آن دکمه نگه می‌دارد.
+    private CancellationTokenSource? _downloadCts;
+
+    private void ShowDownloadProgressPanel(string? version)
+    {
+        DownloadProgressTitleText.Text = "⬇ " + (_localization.CurrentLanguage == AppLanguage.English ? "Downloading update" : "دانلود بروزرسانی")
+            + (string.IsNullOrWhiteSpace(version) ? "" : $" ({(_localization.CurrentLanguage == AppLanguage.English ? "version " : "نسخه‌ی ")}{version})");
+        DownloadProgressBar.IsIndeterminate = true;
+        DownloadProgressBar.Value = 0;
+        DownloadProgressSizeText.Text = "";
+        DownloadProgressPercentText.Text = _localization.CurrentLanguage == AppLanguage.English ? "Starting..." : "در حال شروع...";
+        DownloadProgressCancelButton.IsEnabled = true;
+        DownloadProgressPanel.Visibility = Visibility.Visible;
+    }
+
+    // percent=null یعنی اندازه‌ی فایل از سرور مشخص نبوده (هدر Content-Length نداشت) - نوار پیشرفت
+    // به‌صورت نامعین (در حال حرکت، بدون درصد دقیق) نمایش داده می‌شود.
+    private void UpdateDownloadProgressPanel(double? percent, string sizeText)
+    {
+        DownloadProgressSizeText.Text = sizeText;
+        if (percent.HasValue)
+        {
+            DownloadProgressBar.IsIndeterminate = false;
+            DownloadProgressBar.Value = percent.Value;
+            DownloadProgressPercentText.Text = $"{percent.Value:0}%";
+        }
+        else
+        {
+            DownloadProgressBar.IsIndeterminate = true;
+            DownloadProgressPercentText.Text = sizeText;
+        }
+    }
+
+    private void HideDownloadProgressPanel()
+    {
+        DownloadProgressPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void DownloadProgressCancelButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_downloadCts == null)
+            return;
+        DownloadProgressCancelButton.IsEnabled = false;
+        DownloadProgressPercentText.Text = _localization.CurrentLanguage == AppLanguage.English ? "Cancelling..." : "در حال لغو...";
+        _downloadCts.Cancel();
+    }
+
+    private TaskCompletionSource<bool>? _updateConfirmTcs;
+
+    // جایگزین HighUsageConfirmWindow برای تاییدهای مربوط به بروزرسانی دسکتاپ - طبق درخواست صریح
+    // کاربر («این پیغام یه پنجره‌ی جدید نباشه، بیارش توی برنامه») به‌جای یک Window جدا، یک Overlay
+    // داخل خودِ MainWindow است (UpdateConfirmOverlay در XAML، هم‌استایل با بقیه‌ی Overlayهای برنامه،
+    // با بلور معمول پشت‌زمینه). چون این تابع وسط متدهای async صدا زده می‌شود و باید منتظر انتخاب
+    // کاربر بماند، از TaskCompletionSource استفاده شده - دکمه‌های بله/بعداً و کلیک روی پس‌زمینه
+    // (مثل «بعداً» رفتار می‌کند) همان Task را کامل می‌کنند.
+    private Task<bool> ShowUpdateConfirmOverlayAsync(string title, string message, string confirmText, string cancelText)
+    {
+        // اگر یک تایید قبلی هنوز باز بود (نباید عملاً پیش بیاید)، به‌عنوان لغوشده بسته‌اش می‌کنیم تا
+        // Task قبلی بی‌جواب نماند.
+        _updateConfirmTcs?.TrySetResult(false);
+
+        UpdateConfirmTitleText.Text = "⚠ " + title;
+        UpdateConfirmMessageText.Text = message;
+        UpdateConfirmYesButton.Content = confirmText;
+        UpdateConfirmNoButton.Content = cancelText;
+
+        UpdateConfirmOverlay.Visibility = Visibility.Visible;
+        MainContent.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 18 };
+
+        _updateConfirmTcs = new TaskCompletionSource<bool>();
+        return _updateConfirmTcs.Task;
+    }
+
+    private void CloseUpdateConfirmOverlay(bool result)
+    {
+        UpdateConfirmOverlay.Visibility = Visibility.Collapsed;
+        // اگر هنوز پنجره‌ی پیام‌ها یا تنظیمات باز است، بلورشان را نگه می‌داریم - فقط اگر هیچ Overlay
+        // دیگری باز نیست، بلور پاک می‌شود.
+        if (MessagesOverlay.Visibility != Visibility.Visible && TtTeckSettingsOverlay.Visibility != Visibility.Visible)
+            MainContent.Effect = null;
+
+        _updateConfirmTcs?.TrySetResult(result);
+        _updateConfirmTcs = null;
+    }
+
+    private void UpdateConfirmYesButton_Click(object sender, RoutedEventArgs e) => CloseUpdateConfirmOverlay(true);
+
+    private void UpdateConfirmNoButton_Click(object sender, RoutedEventArgs e) => CloseUpdateConfirmOverlay(false);
+
+    private void UpdateConfirmOverlay_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e) => CloseUpdateConfirmOverlay(false);
+
+    private void UpdateConfirmCard_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e) => e.Handled = true;
+
+    // نصاب را با فلگ‌های بی‌صدای Inno Setup اجرا می‌کند - بدون هیچ صفحه/کلیکی از کاربر:
+    //   /VERYSILENT          هیچ رابط کاربری‌ای نشان داده نمی‌شود.
+    //   /SUPPRESSMSGBOXES    پیام‌های تاییدی احتمالی نصاب هم با پاسخ پیش‌فرض رد می‌شوند.
+    //   /NORESTART           حتی اگر نصاب فکر کند نیاز به ری‌استارت ویندوز است، درخواستش نمی‌کند.
+    //   /CLOSEAPPLICATIONS   از Windows Restart Manager استفاده می‌کند تا این برنامه را (چون فایل‌های
+    //                        در حال جایگزینی exe/dll را قفل کرده) خودش، در لحظه‌ی درست، تمیز ببندد -
+    //                        این از این‌که خودمان زودتر/دیرتر از موعد Shutdown را صدا بزنیم و باعث خطای
+    //                        «فایل قفل است» در نصاب شویم، مطمئن‌تر است.
+    //   /RESTARTAPPLICATIONS همان Restart Manager، بعد از اتمام نصب، دقیقاً همین برنامه را (که خودش
+    //                        بسته) دوباره از همان مسیر exe باز می‌کند - یعنی نسخه‌ی جدید، بدون این‌که
+    //                        کاربر خودش چیزی باز کند («یک بار ریست» که کاربر خواسته بود).
+    // اگر به هر دلیلی (مثلاً نسخه‌ی خیلی قدیمی Inno Setup، یا آنتی‌ویروس) Restart Manager برنامه را
+    // نبندد، بعد از چند ثانیه خودمان به‌عنوان راه احتیاطی می‌بندیمش تا کاربر با نسخه‌ی قدیمی گیر نکند.
+    private void RunSilentInstallAndRestart(string installerPath)
+    {
+        Process.Start(new ProcessStartInfo(installerPath)
+        {
+            Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
+            UseShellExecute = true
+        });
+
+        ShowStyledMessage(
+            _localization.CurrentLanguage == AppLanguage.English ? "Installing update..." : "در حال نصب بروزرسانی...",
+            _localization.CurrentLanguage == AppLanguage.English ? "The app will close and reopen automatically in a few seconds. Please wait." : "برنامه ظرف چند ثانیه خودکار بسته و با نسخه‌ی جدید دوباره باز می‌شود. لطفاً صبر کنید.",
+            false);
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10));
+            // راه احتیاطی: اگر تا این لحظه برنامه هنوز باز است (یعنی Restart Manager به هر دلیلی آن
+            // را نبسته)، خودمان دستی می‌بندیمش و یک‌بار دیگر بازش می‌کنیم - تا فایل‌های به‌روزشده روی
+            // دیسک (که تا این لحظه معمولاً نصاب از قبل جایگزین کرده) واقعاً اجرا شوند.
+            try
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    try
+                    {
+                        string? exePath = Process.GetCurrentProcess().MainModule?.FileName;
+                        if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
+                            Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
+                    }
+                    catch { }
+                    System.Windows.Application.Current.Shutdown();
+                });
+            }
+            catch { }
+        });
+    }
+
     private void MessagesButton_Click(object sender, RoutedEventArgs e)
     {
         MessagesOverlay.Visibility = Visibility.Visible;
         MainContent.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 18 };
-        MessagesBadge.Visibility = Visibility.Collapsed;
+        // طبق درخواست کاربر، دیگر صرفاً باز کردن این پنجره نشان‌گر قرمز را پاک نمی‌کند - فقط زدن دکمه‌ی
+        // «باشه» هر پیام (نگاه کنید به MessageAcknowledgeButton_Click) این کار را می‌کند.
     }
 
     private void CloseMessagesButton_Click(object sender, RoutedEventArgs e)
@@ -10675,14 +11312,32 @@ nQIDAQAB
 
     private void MessageLink_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is System.Windows.Controls.Button btn && btn.Tag is string link && !string.IsNullOrWhiteSpace(link))
+        if (sender is not System.Windows.Controls.Button btn || btn.Tag is not string link || string.IsNullOrWhiteSpace(link))
+            return;
+
+        // کلیک روی دکمه‌ی پیام یعنی کاربر با آن تعامل داشته - همین‌جا هم خوانده‌شده علامت می‌خورد،
+        // مستقل از این‌که خودش چک‌باکس «خوانده شد» را هم بزند یا نه.
+        if (btn.DataContext is AppMessage clickedMessage && !clickedMessage.IsRead)
         {
-            try
-            {
-                Process.Start(new ProcessStartInfo(link) { UseShellExecute = true });
-            }
-            catch { }
+            clickedMessage.IsRead = true;
+            SaveMessagesToDisk();
+            UpdateMessagesBadgeCount();
+            MessagesList.Items.Refresh();
         }
+
+        // پیام‌های بروزرسانی (نگاه کنید به CheckForAppUpdateAsync) به‌جای بازکردن لینک در مرورگر،
+        // خودشان فایل نصب را دانلود و اجرا می‌کنند و برنامه را می‌بندند - نه هر پیامی با Link.
+        if (btn.DataContext is AppMessage message && message.IsUpdateDownload)
+        {
+            _ = StartAppUpdateDownloadAsync(message);
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(link) { UseShellExecute = true });
+        }
+        catch { }
     }
 
     // ---------- Device Aliases ----------
@@ -10995,6 +11650,123 @@ nQIDAQAB
         catch { }
     }
 
+    // گزارش تشخیصی برای پشتیبانی: یک فایل متنی از وضعیت این سیستم (نسخه‌ی برنامه، شناسه/نام
+    // سیستم، وضعیت لایسنس، وضعیت اتصال تی‌تک، و آخرین رخدادها/خطاهای ثبت‌شده در
+    // startup-trace.log/startup-error.log) می‌سازد و روی دسکتاپ ذخیره می‌کند - تا داروخانه بدون
+    // نیاز به اتصال از راه دور (RustDesk) بتواند همین یک فایل را برای پشتیبانی در واتساپ بفرستد و
+    // پشتیبانی بدون تماس/توضیح شفاهی بفهمد دقیقاً سیستم چه وضعیتی دارد.
+    private void SupportDiagnosticsReportButton_Click(object sender, RoutedEventArgs e)
+    {
+        // اول پنجره‌ی «پشتیبانی» را می‌بندیم؛ چون Panel.ZIndex آن (۳۷۰) از StyledMessageOverlay
+        // (۳۵۰) بالاتر است و اگر باز بماند، پیام «گزارش تشخیصی آماده شد» پشت همین پنجره پنهان
+        // می‌شود (قابل مشاهده نیست، فقط یک لبه‌ی محو از متنش پشت کادر پشتیبانی دیده می‌شود).
+        CloseSupportOverlay();
+
+        try
+        {
+            string reportPath = GenerateDiagnosticsReport();
+
+            // عمداً هیچ پنجره‌ی بیرونی (اکسپلورر/واتساپ/مرورگر) باز نمی‌شود - چون آن پنجره جلوی همین
+            // پیام می‌آید و به نظر می‌رسد برنامه چیزی نشان نداده. همه‌ی اطلاعات (مسیر فایل + راهنمای
+            // آپلود در پنل + شماره‌ی واتساپ پشتیبانی به‌عنوان جایگزین) همین‌جا در متن پیام نوشته می‌شود.
+            // دکمه‌ی «ورود به پنل» هم اضافه شده تا با یک کلیک مستقیم صفحه‌ی ورود باز شود.
+            string title = _localization.CurrentLanguage == AppLanguage.English ? "Diagnostics report ready" : "گزارش تشخیصی آماده شد";
+            string message = _localization.CurrentLanguage == AppLanguage.English
+                ? $"The report was saved to the desktop:\n{Path.GetFileName(reportPath)}\n\nGo to scanbridge.ir/panel/login, open the \"Support\" tab, and upload this file - our team will reply to you right here in \"Messages\". (Or send it on WhatsApp to support: 09136346309)"
+                : $"گزارش روی دسکتاپ ذخیره شد:\n{Path.GetFileName(reportPath)}\n\nوارد scanbridge.ir/panel/login بشید، بخش «پشتیبانی» رو باز کنید و همین فایل رو آپلود کنید - پاسخ تیم پشتیبانی همین‌جا توی «پیام‌ها» براتون میاد. (یا می‌تونید همین فایل رو در واتساپ به شماره‌ی ۰۹۱۳۶۳۴۶۳۰۹ بفرستید.)";
+            ShowStyledMessage(
+                title,
+                message,
+                false,
+                linkUrl: "https://scanbridge.ir/panel/login",
+                linkButtonText: _localization.CurrentLanguage == AppLanguage.English ? "Go to login page" : "ورود به پنل");
+        }
+        catch (Exception ex)
+        {
+            ShowStyledMessage(
+                _localization.CurrentLanguage == AppLanguage.English ? "Error" : "خطا",
+                (_localization.CurrentLanguage == AppLanguage.English ? "Could not create the diagnostics report: " : "ساخت گزارش تشخیصی ممکن نشد: ") + ex.Message,
+                true);
+        }
+    }
+
+    private string GenerateDiagnosticsReport()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("=== گزارش تشخیصی Scanbridge ===");
+        sb.AppendLine($"زمان تهیه‌ی گزارش: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine();
+
+        sb.AppendLine("--- سیستم ---");
+        sb.AppendLine($"نسخه‌ی برنامه: {GetCurrentAppVersionString()}");
+        sb.AppendLine($"نام سیستم (ویندوز): {Environment.MachineName}");
+        try { sb.AppendLine($"نام سیستم (داخل برنامه): {_service?.ComputerName}"); } catch { }
+        try { sb.AppendLine($"شناسه‌ی سیستم: {_service?.ComputerId}"); } catch { }
+        sb.AppendLine($"نسخه‌ی ویندوز: {Environment.OSVersion}");
+        sb.AppendLine($"معماری سیستم: {(Environment.Is64BitOperatingSystem ? "64-bit" : "32-bit")}");
+        sb.AppendLine();
+
+        sb.AppendLine("--- لایسنس ---");
+        try
+        {
+            sb.AppendLine($"وضعیت: {(IsLicenseValid() ? "معتبر" : "نامعتبر/موجود نیست")}");
+            sb.AppendLine($"کد لایسنس: {_activeLicense.LicenseId}");
+            sb.AppendLine($"پلن: {_activeLicense.Plan}");
+            sb.AppendLine($"داروخانه: {_activeLicense.PharmacyName}");
+            sb.AppendLine($"تاریخ انقضا: {_activeLicense.ExpiresAt:yyyy-MM-dd}");
+        }
+        catch (Exception ex) { sb.AppendLine("خطا در خواندن اطلاعات لایسنس: " + ex.Message); }
+        sb.AppendLine();
+
+        sb.AppendLine("--- اتصال ---");
+        try { sb.AppendLine($"تعداد گوشی‌های متصل: {_service?.ConnectedClients}"); } catch { }
+        try { sb.AppendLine($"وضعیت اتصال تی‌تک: {(HasValidTtacToken() ? "متصل" : "قطع")}"); } catch { }
+        sb.AppendLine();
+
+        try
+        {
+            string tracePath = Path.Combine(AppContext.BaseDirectory, "startup-trace.log");
+            if (File.Exists(tracePath))
+            {
+                var traceLines = File.ReadAllLines(tracePath);
+                var lastLines = traceLines.Length > 150 ? traceLines[^150..] : traceLines;
+                sb.AppendLine("--- آخرین رخدادهای راه‌اندازی (۱۵۰ خط آخر) ---");
+                foreach (var line in lastLines)
+                    sb.AppendLine(line);
+                sb.AppendLine();
+            }
+        }
+        catch { }
+
+        try
+        {
+            string errorPath = Path.Combine(AppContext.BaseDirectory, "startup-error.log");
+            if (File.Exists(errorPath))
+            {
+                string errorText = File.ReadAllText(errorPath);
+                // اگر فایل خیلی بزرگ شده (روزها/هفته‌ها جمع شده)، فقط بخش پایانی (جدیدترین خطاها)
+                // نگه داشته می‌شود تا گزارش قابل‌فرستادن (نه چند مگابایت) بماند.
+                const int maxChars = 30000;
+                if (errorText.Length > maxChars)
+                    errorText = "...(بخش ابتدایی به‌خاطر حجم زیاد حذف شد)...\n" + errorText.Substring(errorText.Length - maxChars);
+                sb.AppendLine("--- خطاهای ثبت‌شده ---");
+                sb.AppendLine(errorText);
+            }
+            else
+            {
+                sb.AppendLine("--- خطاهای ثبت‌شده ---");
+                sb.AppendLine("(خطایی ثبت نشده است)");
+            }
+        }
+        catch { }
+
+        string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        string fileName = $"ScanBridge-Diagnostics-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmmss}.txt";
+        string fullPath = Path.Combine(desktopPath, fileName);
+        File.WriteAllText(fullPath, sb.ToString(), Encoding.UTF8);
+        return fullPath;
+    }
+
     private void SupportSiteButton_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -11128,24 +11900,22 @@ nQIDAQAB
     {
         LoadTtTeckSettings();
         bool ttacAllowed = HasLicenseModule("ttac");
-        if (TtTeckSettingsSection != null)
-            TtTeckSettingsSection.Visibility = ttacAllowed ? Visibility.Visible : Visibility.Collapsed;
-        if (!ttacAllowed && TtTeckEnabledCheckBox != null)
-            TtTeckEnabledCheckBox.IsChecked = false;
 
-        // اگر تی‌تک غیرفعال باشد، ستون وسط را مخفی کن تا فضای خالی ایجاد نشود
+        if (AppUpdateCurrentVersionText != null)
+            AppUpdateCurrentVersionText.Text = (_localization.CurrentLanguage == AppLanguage.English
+                ? "Installed version: "
+                : "نسخه‌ی نصب‌شده: ") + GetCurrentAppVersionString();
+
+        // «فعال‌سازی جستجوی خودکار تی‌تک» دیگر تیک دستی ندارد؛ خودش به‌صورت خودکار فقط برای
+        // پلن‌های تی‌تک/تی‌تک‌پلاس فعال است (در LoadTtTeckSettings/SaveTtTeckSettings)، پس این
+        // کارت از تنظیمات همیشه مخفی است و ستون وسط جمع می‌شود تا فضای خالی ایجاد نشود.
+        if (TtTeckSettingsSection != null)
+            TtTeckSettingsSection.Visibility = Visibility.Collapsed;
+
         if (SettingsTopRowGrid != null && SettingsTopRowGrid.ColumnDefinitions.Count >= 5)
         {
-            if (ttacAllowed)
-            {
-                SettingsTopRowGrid.ColumnDefinitions[1].Width = new GridLength(16);
-                SettingsTopRowGrid.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
-            }
-            else
-            {
-                SettingsTopRowGrid.ColumnDefinitions[1].Width = new GridLength(0);
-                SettingsTopRowGrid.ColumnDefinitions[2].Width = new GridLength(0);
-            }
+            SettingsTopRowGrid.ColumnDefinitions[1].Width = new GridLength(0);
+            SettingsTopRowGrid.ColumnDefinitions[2].Width = new GridLength(0);
         }
 
         bool ttacPlusAllowed = IsLicenseValid() && _activeLicense.Plan == "TtacPlus";
@@ -11217,6 +11987,9 @@ nQIDAQAB
 
          if (root.TryGetProperty("ttTeckEnabled", out var ttEnabledProp) && ttEnabledProp.ValueKind is JsonValueKind.True or JsonValueKind.False)
              _ttTeckSettings.IsEnabled = ttEnabledProp.GetBoolean();
+         // این مقدار همیشه باید از پلن لایسنس همین سیستم مشتق شود (نه از سیستم هم‌شبکه)، چون در
+         // تئوری امکان دارد پیام هم‌زمانی قدیمی‌تر/دستگاه دیگری با تنظیمات دستیِ گذشته برسد.
+         _ttTeckSettings.IsEnabled = HasLicenseModule("ttac");
 
          if (root.TryGetProperty("expiryThresholdMonths", out var thresholdProp) && thresholdProp.TryGetInt32(out var threshold) && threshold > 0)
              _expiryAlertSettings.ThresholdMonths = threshold;
@@ -11298,12 +12071,15 @@ nQIDAQAB
         _ttTeckSettings = new();
     }
 
+    // «جستجوی خودکار تی‌تک» دیگر سوئیچ دستی ندارد؛ به‌صورت خودکار فقط برای پلن‌های تی‌تک و
+    // تی‌تک‌پلاس فعال است (نه پلن عادی) - کاربر نیازی به فعال‌سازی دستی آن از تنظیمات ندارد.
+    _ttTeckSettings.IsEnabled = HasLicenseModule("ttac");
     TtTeckEnabledCheckBox.IsChecked = _ttTeckSettings.IsEnabled;
 }
 
 private void SaveTtTeckSettings()
 {
-    _ttTeckSettings.IsEnabled = HasLicenseModule("ttac") && (TtTeckEnabledCheckBox.IsChecked ?? false);
+    _ttTeckSettings.IsEnabled = HasLicenseModule("ttac");
 
     bool ttacPlusAllowed = IsLicenseValid() && _activeLicense.Plan == "TtacPlus";
     if (ttacPlusAllowed && ExpiryAlertSettingsSection != null && ExpiryAlertSettingsSection.Visibility == Visibility.Visible)
@@ -12435,6 +13211,23 @@ private void SaveTtTeckSettings()
             TtacSavedLoginsSection.Visibility = valid && ttac ? Visibility.Visible : Visibility.Collapsed;
         if (ExportTtTeckOptionBorder != null)
             ExportTtTeckOptionBorder.Visibility = valid && ttac ? Visibility.Visible : Visibility.Collapsed;
+
+        // بانک بارکد پرمصرف فقط برای پلن تی‌تک‌پلاس مجاز است.
+        bool highUsageBarcodeAllowed = valid && _activeLicense.Plan == "TtacPlus";
+        if (HighUsageBarcodePanelButton != null)
+            HighUsageBarcodePanelButton.Visibility = highUsageBarcodeAllowed ? Visibility.Visible : Visibility.Collapsed;
+        if (HighUsageWidgetEnableCheckBox != null)
+            HighUsageWidgetEnableCheckBox.Visibility = highUsageBarcodeAllowed ? Visibility.Visible : Visibility.Collapsed;
+        if (!highUsageBarcodeAllowed && _highUsageSettings.WidgetEnabled)
+        {
+            // اگر لایسنس دیگر تی‌تک‌پلاس نیست (تغییر/تمدید با پلن پایین‌تر)، آیکون شناور را خاموش کن.
+            _highUsageSettings.WidgetEnabled = false;
+            SaveHighUsageBarcodeSettings();
+            HideHighUsageWidget();
+            if (HighUsageWidgetEnableCheckBox != null)
+                HighUsageWidgetEnableCheckBox.IsChecked = false;
+        }
+
         if (ExportExcelButton != null) ExportExcelButton.IsEnabled = valid && excelPdf;
         if (ExportPdfButton != null) ExportPdfButton.IsEnabled = valid && excelPdf;
         if (TtacPanelExportExcelButton != null) TtacPanelExportExcelButton.IsEnabled = valid && excelPdf;
@@ -12755,6 +13548,39 @@ private void SaveTtTeckSettings()
 
                     // اگر لایسنس در اعتبارسنجی آنلاین تغییر کرده باشد (تمدید نباشد)، حساب‌ها پاک شوند.
                     ClearSavedLoginsIfLicenseChanged();
+                }
+            }
+
+            // پیام‌های اختصاصیِ پشتیبانی - وقتی ادمین توی صفحه‌ی «پشتیبانی» (روی سرور) برای همین لایسنس
+            // جواب می‌نویسد، همین درخواست /license/validate (که هر ۶ ساعت + موقع بالا آمدن برنامه صدا
+            // زده می‌شود) آن را در فیلد support_messages برمی‌گرداند. سرور خودش بعد از یک‌بار فرستادن
+            // این پیام را «تحویل‌شده» علامت می‌زند، پس اینجا نیازی به هیچ dedup ای نیست - هر آیتمی که
+            // برسد، تازه و ندیده است.
+            if (responseDoc.RootElement.TryGetProperty("support_messages", out var supportMsgsProp)
+                && supportMsgsProp.ValueKind == JsonValueKind.Array
+                && supportMsgsProp.GetArrayLength() > 0)
+            {
+                bool anyAdded = false;
+                foreach (var item in supportMsgsProp.EnumerateArray())
+                {
+                    string messageBody = JsonString(item, "body", "");
+                    if (string.IsNullOrWhiteSpace(messageBody))
+                        continue;
+
+                    string title = JsonString(item, "title", _localization.CurrentLanguage == AppLanguage.English ? "Support reply" : "پاسخ پشتیبانی اسکن‌بریج");
+                    Messages.Add(new AppMessage
+                    {
+                        Title = title,
+                        Body = messageBody,
+                        IsRead = false
+                    });
+                    anyAdded = true;
+                }
+
+                if (anyAdded)
+                {
+                    SaveMessagesToDisk();
+                    UpdateMessagesBadgeCount();
                 }
             }
         }

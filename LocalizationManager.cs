@@ -199,6 +199,8 @@ public sealed class LocalizationManager
     ["DeviceDisconnectedMessage"] = ("{0} was disconnected.", "اتصال {0} قطع شد."),
     ["RialSuffix"] = ("", " ریال"),
     ["TokenRemaining"] = ("token: {0}", "اعتبار توکن: {0}"),
+    ["TtacTokenExpiredTitle"] = ("TTAC token expired", "توکن تی‌تک تمام شد"),
+    ["TtacTokenExpiredMessage"] = ("Your TTAC login session has expired. Please connect to TTAC again.", "نشست ورود تی‌تک شما تمام شده است. لطفاً دوباره به تی‌تک متصل شوید."),
     ["ConnectedWithName"] = ("Connected - {0}", "متصل است - {0}"),
     ["MonthsCount"] = ("{0} months", "{0} ماه"),
     ["DaysLeft"] = ("{0} days left", "{0} روز تا انقضا"),

@@ -43,14 +43,27 @@ namespace ScanBridgeTest;
 
 public sealed class HighUsageBarcodeEntry
 {
+    // شناسه‌ی پایدار - برای هماهنگ‌سازی بین چند سیستم (تا هر سیستم بتواند دقیقاً همین بارکد را با
+    // شناسه، نه با برابری مرجع/آبجکت که فقط داخل همان پردازه معنی دارد، پیدا کند).
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Barcode { get; set; } = string.Empty;
     public DateTime ScannedAtUtc { get; set; } = DateTime.UtcNow;
+    // چند واحد از این بارکد هنوز استفاده نشده - برای بارکدهایی که روی جعبه هستند و چند واحد را
+    // با هم پوشش می‌دهند (مثلاً یک جعبه‌ی ۲۰ ویالی). هر بار دیسپنس یکی کم می‌شود؛ وقتی به صفر
+    // برسد، این بارکد از صف حذف و نوبت به بعدی می‌رسد. مقدار اولیه از UnitsPerBarcode زیرگروه در
+    // لحظه‌ی اسکن گرفته می‌شود (نه لحظه‌ی مصرف) تا تغییر بعدی تنظیم زیرگروه، جعبه‌های قبلاً
+    // اسکن‌شده را عقب برنگرداند.
+    public int RemainingUses { get; set; } = 1;
 }
 
 public sealed class HighUsageBarcodeSubgroup
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = string.Empty;
+    // چند واحد فیزیکی را یک بارکد پوشش می‌دهد. ۱ یعنی هر واحد بارکد خودش را دارد (مثلاً هر سرم).
+    // بیشتر از ۱ یعنی یک بارکد (مثلاً روی جعبه) چند واحد را با هم پوشش می‌دهد (مثلاً جعبه‌ی
+    // ۲۰ ویالی پنتوپرازول که فقط یک بارکد کلی روی جعبه دارد).
+    public int UnitsPerBarcode { get; set; } = 1;
     public List<HighUsageBarcodeEntry> Entries { get; set; } = new();
 }
 
@@ -68,9 +81,23 @@ public sealed class HighUsageBarcodeSettings
     public double WidgetTop { get; set; } = -1;
 }
 
+// فایل ذخیره‌ی بانک روی دیسک این پوششِ خودش را دارد (نه فقط یک آرایه‌ی خام گروه‌ها) تا یک شماره‌ی
+// نسخه‌ی زمانی هم همراهش ذخیره شود - همان چیزی که برای هماهنگ‌سازی اولیه (bootstrap) با سیستم‌های
+// هم‌شبکه‌ی هم‌لایسنس لازم است (پایین‌تر توضیح داده شده).
+public sealed class HighUsageBarcodeBankFile
+{
+    public long VersionUtcMs { get; set; }
+    public List<HighUsageBarcodeGroup> Groups { get; set; } = new();
+}
+
 public partial class MainWindow
 {
     private List<HighUsageBarcodeGroup> _highUsageGroups = new();
+    // نسخه‌ی زمانی کل بانک - با هر تغییر محلی (اضافه/حذف/دیسپنس) و با هر عملیات دریافتی از یک
+    // سیستم هم‌شبکه بالا می‌رود. فقط برای هماهنگ‌سازی اولیه‌ی یک سیستم تازه‌وصل‌شده استفاده می‌شود؛
+    // خودِ به‌روزرسانی زنده از طریق عملیات‌های تکی (نه این نسخه) رد و بدل می‌شود - نگاه کنید به
+    // توضیح بالای BroadcastHighUsageOperation.
+    private long _highUsageBankVersionUtcMs;
     private HighUsageBarcodeSettings _highUsageSettings = new();
     private HighUsageBarcodeWidgetWindow? _highUsageWidgetWindow;
     private HighUsageBarcodeManagerWindow? _highUsageManagerWindow;
@@ -132,7 +159,25 @@ public partial class MainWindow
             {
                 string json = File.ReadAllText(path);
                 if (!string.IsNullOrWhiteSpace(json))
+                {
+                    // فرمت جدید: یک آبجکت با VersionUtcMs + Groups. برای سازگاری با فایل‌های قدیمی‌تر
+                    // (که فقط یک آرایه‌ی خام گروه‌ها بودند، بدون نسخه)، اگر فرمت جدید جواب نداد یا
+                    // Groups خالی برگشت در حالی که JSON با «[» شروع می‌شود، به فرمت قدیمی برمی‌گردیم.
+                    bool looksLikeOldArrayFormat = json.TrimStart().StartsWith("[");
+                    if (!looksLikeOldArrayFormat)
+                    {
+                        var wrapper = JsonSerializer.Deserialize<HighUsageBarcodeBankFile>(json);
+                        if (wrapper != null)
+                        {
+                            _highUsageGroups = wrapper.Groups ?? new List<HighUsageBarcodeGroup>();
+                            _highUsageBankVersionUtcMs = wrapper.VersionUtcMs;
+                            return;
+                        }
+                    }
+
                     _highUsageGroups = JsonSerializer.Deserialize<List<HighUsageBarcodeGroup>>(json) ?? new List<HighUsageBarcodeGroup>();
+                    _highUsageBankVersionUtcMs = 0;
+                }
             }
         }
         catch { _highUsageGroups = new List<HighUsageBarcodeGroup>(); }
@@ -142,7 +187,235 @@ public partial class MainWindow
     {
         try
         {
-            File.WriteAllText(GetHighUsageBarcodeDataPath(), JsonSerializer.Serialize(_highUsageGroups, new JsonSerializerOptions { WriteIndented = true }));
+            var wrapper = new HighUsageBarcodeBankFile { VersionUtcMs = _highUsageBankVersionUtcMs, Groups = _highUsageGroups };
+            File.WriteAllText(GetHighUsageBarcodeDataPath(), JsonSerializer.Serialize(wrapper, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch { }
+    }
+
+    // بعد از هر تغییر محلیِ بانک (اضافه/حذف/دیسپنس) صدا زده می‌شود: نسخه را بالا می‌برد، ذخیره
+    // می‌کند، و یک عکسِ کامل از کل بانک را برای سیستم‌های هم‌شبکه‌ی هم‌لایسنس آماده‌ی درخواست
+    // نگه می‌دارد (برای هماهنگ‌سازی اولیه‌ی یک سیستم تازه‌وصل‌شده - نگاه کنید به BroadcastHighUsageOperation
+    // برای بخش زنده/آنی‌ که با عملیات‌های تکی انجام می‌شود، نه با این عکسِ کامل).
+    private void PublishHighUsageBankSnapshotForSync()
+    {
+        _highUsageBankVersionUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        SaveHighUsageBarcodeGroups();
+        try
+        {
+            string json = JsonSerializer.Serialize(_highUsageGroups);
+            _service?.PublishHighUsageBarcodeSnapshot(json, _highUsageBankVersionUtcMs);
+        }
+        catch { }
+    }
+
+    // هر بار که بانک به‌صورت محلی تغییر می‌کند (اضافه/حذف/دیسپنس)، این تابع به‌جای فقط ذخیره‌ی روی
+    // دیسک، یک «عملیات» کوچک (نه کل بانک) برای سیستم‌های هم‌شبکه‌ی هم‌لایسنس هم broadcast می‌کند -
+    // چون فقط همان یک واحد تغییر رد و بدل می‌شود (نه کل لیست)، اعمال آن روی سیستم‌های دیگر تقریباً
+    // آنی است؛ این یعنی اگر دو سیستم/دو گوشی هم‌زمان با هم کار کنند، هر دو تقریباً بلافاصله از کار
+    // هم باخبر می‌شوند (مثلاً یک بارکد دیسپنس‌شده روی یک سیستم، سریع از صف سیستم دیگر هم کم می‌شود
+    // و دوباره دیسپنس نمی‌شود). علاوه بر broadcast عملیات، یک نسخه‌ی snapshot هم برای هماهنگ‌سازی
+    // اولیه (bootstrap یک سیستم تازه‌وصل‌شده یا تازه از آفلاین برگشته) ذخیره و آماده‌ی درخواست
+    // نگه داشته می‌شود.
+    private void BroadcastHighUsageOperation(object opPayload)
+    {
+        try
+        {
+            string opJson = JsonSerializer.Serialize(opPayload);
+            _service?.BroadcastHighUsageBarcodeOperation(opJson);
+        }
+        catch { }
+        PublishHighUsageBankSnapshotForSync();
+    }
+
+    private static string GetHighUsageOpString(JsonElement root, string propertyName)
+        => root.TryGetProperty(propertyName, out var prop) ? prop.GetString() ?? string.Empty : string.Empty;
+
+    // یک عملیات دریافتی از یک سیستم هم‌شبکه را روی بانک محلی اعمال می‌کند - بدون broadcast دوباره
+    // (تا حلقه‌ی بی‌پایان رد و بدل پیام پیش نیاید). چون هر سیستم شناسه‌ی پایدار گروه/زیرگروه/رکورد
+    // را می‌فرستد (نه اندیس)، اعمال آن مستقل از ترتیب رسیدن پیام‌ها روی همه‌ی سیستم‌ها یکسان جواب
+    // می‌دهد.
+    private void ApplyHighUsageBarcodeOperation(string opJson, string fromComputerId)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => ApplyHighUsageBarcodeOperation(opJson, fromComputerId)));
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(fromComputerId) && _service != null && string.Equals(fromComputerId, _service.ComputerId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(opJson) ? "{}" : opJson);
+            var root = doc.RootElement;
+            string kind = GetHighUsageOpString(root, "kind");
+            bool changed = false;
+
+            switch (kind)
+            {
+                case "addGroup":
+                    {
+                        string groupId = GetHighUsageOpString(root, "groupId");
+                        if (!string.IsNullOrEmpty(groupId) && !_highUsageGroups.Any(g => g.Id == groupId))
+                        {
+                            _highUsageGroups.Add(new HighUsageBarcodeGroup { Id = groupId, Name = GetHighUsageOpString(root, "name") });
+                            changed = true;
+                        }
+                        break;
+                    }
+                case "addSubgroup":
+                    {
+                        string groupId = GetHighUsageOpString(root, "groupId");
+                        string subgroupId = GetHighUsageOpString(root, "subgroupId");
+                        int units = root.TryGetProperty("unitsPerBarcode", out var unitsProp) && unitsProp.TryGetInt32(out var u) ? Math.Max(1, u) : 1;
+                        var group = _highUsageGroups.FirstOrDefault(g => g.Id == groupId);
+                        if (group != null && !string.IsNullOrEmpty(subgroupId) && !group.Subgroups.Any(s => s.Id == subgroupId))
+                        {
+                            group.Subgroups.Add(new HighUsageBarcodeSubgroup { Id = subgroupId, Name = GetHighUsageOpString(root, "name"), UnitsPerBarcode = units });
+                            changed = true;
+                        }
+                        break;
+                    }
+                case "deleteGroup":
+                    {
+                        string groupId = GetHighUsageOpString(root, "groupId");
+                        if (_highUsageGroups.RemoveAll(g => g.Id == groupId) > 0)
+                        {
+                            if (_highUsageCaptureSubgroupId != null && FindHighUsageSubgroup(_highUsageCaptureSubgroupId) == null)
+                                _highUsageCaptureSubgroupId = null;
+                            changed = true;
+                        }
+                        break;
+                    }
+                case "deleteSubgroup":
+                    {
+                        string groupId = GetHighUsageOpString(root, "groupId");
+                        string subgroupId = GetHighUsageOpString(root, "subgroupId");
+                        var group = _highUsageGroups.FirstOrDefault(g => g.Id == groupId);
+                        if (group != null && group.Subgroups.RemoveAll(s => s.Id == subgroupId) > 0)
+                        {
+                            if (_highUsageCaptureSubgroupId == subgroupId)
+                                _highUsageCaptureSubgroupId = null;
+                            changed = true;
+                        }
+                        break;
+                    }
+                case "addEntry":
+                    {
+                        string subgroupId = GetHighUsageOpString(root, "subgroupId");
+                        string entryId = GetHighUsageOpString(root, "entryId");
+                        var subgroup = FindHighUsageSubgroup(subgroupId);
+                        if (subgroup != null && !string.IsNullOrEmpty(entryId) && !subgroup.Entries.Any(x => x.Id == entryId))
+                        {
+                            DateTime scannedAtUtc = root.TryGetProperty("scannedAtUtc", out var scannedProp) && scannedProp.TryGetDateTime(out var dt) ? dt : DateTime.UtcNow;
+                            int remaining = root.TryGetProperty("remainingUses", out var remProp) && remProp.TryGetInt32(out var r) ? Math.Max(0, r) : 1;
+                            subgroup.Entries.Add(new HighUsageBarcodeEntry { Id = entryId, Barcode = GetHighUsageOpString(root, "barcode"), ScannedAtUtc = scannedAtUtc, RemainingUses = remaining });
+                            changed = true;
+                        }
+                        break;
+                    }
+                case "deleteEntry":
+                    {
+                        string subgroupId = GetHighUsageOpString(root, "subgroupId");
+                        string entryId = GetHighUsageOpString(root, "entryId");
+                        var subgroup = FindHighUsageSubgroup(subgroupId);
+                        if (subgroup != null && subgroup.Entries.RemoveAll(x => x.Id == entryId) > 0)
+                            changed = true;
+                        break;
+                    }
+                case "dispenseEntry":
+                    {
+                        string subgroupId = GetHighUsageOpString(root, "subgroupId");
+                        string entryId = GetHighUsageOpString(root, "entryId");
+                        int remainingAfter = root.TryGetProperty("remainingUsesAfter", out var raProp) && raProp.TryGetInt32(out var ra) ? Math.Max(0, ra) : 0;
+                        var subgroup = FindHighUsageSubgroup(subgroupId);
+                        var entry = subgroup?.Entries.FirstOrDefault(x => x.Id == entryId);
+                        if (entry != null)
+                        {
+                            if (remainingAfter <= 0)
+                                subgroup!.Entries.Remove(entry);
+                            else
+                                entry.RemainingUses = remainingAfter;
+                            changed = true;
+                        }
+                        break;
+                    }
+            }
+
+            if (changed)
+            {
+                SaveHighUsageBarcodeGroups();
+                try { _highUsageManagerWindow?.RefreshFromSource(); } catch { }
+            }
+        }
+        catch { }
+    }
+
+    // یک عکسِ کامل از بانک یک سیستم هم‌شبکه (برای هماهنگ‌سازی اولیه‌ی یک سیستم تازه‌وصل‌شده یا در
+    // جواب درخواست ما). فقط additive است - یعنی هیچ‌وقت رکوردی که همین‌جا محلی وجود دارد را حذف یا
+    // جایگزین نمی‌کند، فقط چیزی که اینجا نیست (بر اساس شناسه) را اضافه می‌کند؛ این‌طور اگر یک سیستم
+    // مدتی آفلاین بوده و بعد وصل شده، چیزی که کاربر همین سیستم محلی زده از بین نمی‌رود. این طراحی
+    // عمداً یک CRDT کامل نیست - یعنی حذف‌هایی که وقتی یک سیستم آفلاین بوده روی سیستم دیگر انجام
+    // شده، با این snapshot به آن سیستم برنمی‌گردد (رکورد حذف‌شده روی سیستم دیگر دوباره از snapshot
+    // این سیستم اضافه می‌شود). برای همین بخش زنده/آنلاین (BroadcastHighUsageOperation) طراحی اصلی
+    // است و این فقط برای «کم نیفتادن چیزی» موقع اتصال دوباره است، نه یک تضمین ریاضی کامل.
+    private void ApplyHighUsageBarcodeSnapshot(string payloadJson, long versionUtcMs, string fromComputerId)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => ApplyHighUsageBarcodeSnapshot(payloadJson, versionUtcMs, fromComputerId)));
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(fromComputerId) && _service != null && string.Equals(fromComputerId, _service.ComputerId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        try
+        {
+            var remoteGroups = JsonSerializer.Deserialize<List<HighUsageBarcodeGroup>>(string.IsNullOrWhiteSpace(payloadJson) ? "[]" : payloadJson) ?? new List<HighUsageBarcodeGroup>();
+            bool changed = false;
+
+            foreach (var remoteGroup in remoteGroups)
+            {
+                var localGroup = _highUsageGroups.FirstOrDefault(g => g.Id == remoteGroup.Id);
+                if (localGroup == null)
+                {
+                    _highUsageGroups.Add(remoteGroup);
+                    changed = true;
+                    continue;
+                }
+
+                foreach (var remoteSubgroup in remoteGroup.Subgroups)
+                {
+                    var localSubgroup = localGroup.Subgroups.FirstOrDefault(s => s.Id == remoteSubgroup.Id);
+                    if (localSubgroup == null)
+                    {
+                        localGroup.Subgroups.Add(remoteSubgroup);
+                        changed = true;
+                        continue;
+                    }
+
+                    foreach (var remoteEntry in remoteSubgroup.Entries)
+                    {
+                        if (!localSubgroup.Entries.Any(e => e.Id == remoteEntry.Id))
+                        {
+                            localSubgroup.Entries.Add(remoteEntry);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+
+            if (versionUtcMs > _highUsageBankVersionUtcMs)
+                _highUsageBankVersionUtcMs = versionUtcMs;
+
+            if (changed)
+            {
+                SaveHighUsageBarcodeGroups();
+                try { _highUsageManagerWindow?.RefreshFromSource(); } catch { }
+            }
         }
         catch { }
     }
@@ -177,6 +450,19 @@ public partial class MainWindow
             _highUsageSettings.WidgetLeft = _highUsageWidgetWindow.Left;
             _highUsageSettings.WidgetTop = _highUsageWidgetWindow.Top;
             SaveHighUsageBarcodeSettings();
+        };
+        // دکمه‌ی ✕ روی آیکون شناور دقیقاً همان مسیر خاموش‌کردن تیک تنظیمات را طی می‌کند تا وضعیت
+        // (تیک صفحه‌ی اصلی + فایل تنظیمات) با بسته‌شدن آیکون هماهنگ بماند.
+        _highUsageWidgetWindow.CloseRequested += (_, _) =>
+        {
+            if (HighUsageWidgetEnableCheckBox != null)
+                HighUsageWidgetEnableCheckBox.IsChecked = false;
+            else
+            {
+                _highUsageSettings.WidgetEnabled = false;
+                SaveHighUsageBarcodeSettings();
+                HideHighUsageWidget();
+            }
         };
         try { _highUsageWidgetWindow.Show(); } catch { }
     }
@@ -256,17 +542,17 @@ public partial class MainWindow
     {
         var group = new HighUsageBarcodeGroup { Name = name.Trim() };
         _highUsageGroups.Add(group);
-        SaveHighUsageBarcodeGroups();
+        BroadcastHighUsageOperation(new { kind = "addGroup", groupId = group.Id, name = group.Name });
         return group;
     }
 
-    internal HighUsageBarcodeSubgroup? AddHighUsageSubgroup(string groupId, string name)
+    internal HighUsageBarcodeSubgroup? AddHighUsageSubgroup(string groupId, string name, int unitsPerBarcode = 1)
     {
         var group = _highUsageGroups.FirstOrDefault(g => g.Id == groupId);
         if (group == null) return null;
-        var subgroup = new HighUsageBarcodeSubgroup { Name = name.Trim() };
+        var subgroup = new HighUsageBarcodeSubgroup { Name = name.Trim(), UnitsPerBarcode = Math.Max(1, unitsPerBarcode) };
         group.Subgroups.Add(subgroup);
-        SaveHighUsageBarcodeGroups();
+        BroadcastHighUsageOperation(new { kind = "addSubgroup", groupId, subgroupId = subgroup.Id, name = subgroup.Name, unitsPerBarcode = subgroup.UnitsPerBarcode });
         return subgroup;
     }
 
@@ -277,7 +563,7 @@ public partial class MainWindow
             _highUsageCaptureSubgroupId = null;
 
         _highUsageGroups.RemoveAll(g => g.Id == groupId);
-        SaveHighUsageBarcodeGroups();
+        BroadcastHighUsageOperation(new { kind = "deleteGroup", groupId });
     }
 
     internal void DeleteHighUsageSubgroup(string groupId, string subgroupId)
@@ -286,14 +572,14 @@ public partial class MainWindow
         group?.Subgroups.RemoveAll(s => s.Id == subgroupId);
         if (_highUsageCaptureSubgroupId == subgroupId)
             _highUsageCaptureSubgroupId = null;
-        SaveHighUsageBarcodeGroups();
+        BroadcastHighUsageOperation(new { kind = "deleteSubgroup", groupId, subgroupId });
     }
 
     internal void DeleteHighUsageEntry(string subgroupId, HighUsageBarcodeEntry entry)
     {
         var subgroup = FindHighUsageSubgroup(subgroupId);
         subgroup?.Entries.Remove(entry);
-        SaveHighUsageBarcodeGroups();
+        BroadcastHighUsageOperation(new { kind = "deleteEntry", subgroupId, entryId = entry.Id });
     }
 
     internal HighUsageBarcodeSubgroup? FindHighUsageSubgroup(string subgroupId)
@@ -326,14 +612,17 @@ public partial class MainWindow
             return false;
         }
 
-        subgroup.Entries.Add(new HighUsageBarcodeEntry { Barcode = barcode, ScannedAtUtc = DateTime.UtcNow });
-        SaveHighUsageBarcodeGroups();
+        int unitsPerBarcode = Math.Max(1, subgroup.UnitsPerBarcode);
+        var newEntry = new HighUsageBarcodeEntry { Barcode = barcode, ScannedAtUtc = DateTime.UtcNow, RemainingUses = unitsPerBarcode };
+        subgroup.Entries.Add(newEntry);
+        BroadcastHighUsageOperation(new { kind = "addEntry", subgroupId = subgroup.Id, entryId = newEntry.Id, barcode = newEntry.Barcode, scannedAtUtc = newEntry.ScannedAtUtc, remainingUses = newEntry.RemainingUses });
 
         try { _highUsageManagerWindow?.RefreshFromSource(); } catch { }
         try
         {
             var record = new ScanRecord(DateTime.Now, barcode, subgroup.Name);
-            ShowScanToast(record, true, $"اضافه شد به «{subgroup.Name}» ({subgroup.Entries.Count} عدد)");
+            string countText = HighUsageUi.FormatSubgroupCount(subgroup);
+            ShowScanToast(record, true, $"اضافه شد به «{subgroup.Name}» ({countText})");
         }
         catch { }
 
@@ -350,9 +639,17 @@ public partial class MainWindow
         if (subgroup == null || subgroup.Entries.Count == 0)
             return (false, string.Empty, 0, subgroup?.Name ?? string.Empty);
 
+        // قدیمی‌ترین بارکد صف؛ اگر بیش از یک واحد باقی داشته باشد (بارکد جعبه‌ای/چندتایی)، فقط یک
+        // واحد از آن کم می‌شود و خودِ بارکد در صف می‌ماند (همچنان قدیمی‌ترین است، پس دفعه‌ی بعد هم
+        // همین انتخاب می‌شود) تا وقتی واحدهایش تمام شود؛ آن‌وقت از صف حذف و نوبت به بعدی می‌رسد.
         var oldest = subgroup.Entries.OrderBy(x => x.ScannedAtUtc).First();
-        subgroup.Entries.Remove(oldest);
-        SaveHighUsageBarcodeGroups();
+        string dispensedBarcode = oldest.Barcode;
+        string dispensedEntryId = oldest.Id;
+        oldest.RemainingUses = Math.Max(0, oldest.RemainingUses - 1);
+        int remainingUsesAfterDispense = oldest.RemainingUses;
+        if (oldest.RemainingUses <= 0)
+            subgroup.Entries.Remove(oldest);
+        BroadcastHighUsageOperation(new { kind = "dispenseEntry", subgroupId = subgroup.Id, entryId = dispensedEntryId, remainingUsesAfter = remainingUsesAfterDispense });
 
         try
         {
@@ -366,14 +663,14 @@ public partial class MainWindow
 
         try
         {
-            KeyboardInjector.TypeText(oldest.Barcode);
+            KeyboardInjector.TypeText(dispensedBarcode);
             KeyboardInjector.PressEnter();
         }
         catch
         {
             try
             {
-                System.Windows.Clipboard.SetText(oldest.Barcode);
+                System.Windows.Clipboard.SetText(dispensedBarcode);
                 System.Windows.Forms.SendKeys.SendWait("^v");
                 await Task.Delay(100);
                 System.Windows.Forms.SendKeys.SendWait("{ENTER}");
@@ -383,7 +680,8 @@ public partial class MainWindow
 
         try { _highUsageManagerWindow?.RefreshFromSource(); } catch { }
 
-        return (true, oldest.Barcode, subgroup.Entries.Count, subgroup.Name);
+        int remainingUnits = subgroup.Entries.Sum(x => x.RemainingUses);
+        return (true, dispensedBarcode, remainingUnits, subgroup.Name);
     }
 
     // خروجی اکسل بانک: یک شیت جدا برای هر زیرگروه (با همان الگوی ClosedXML که در بقیه‌ی خروجی‌های
@@ -442,7 +740,7 @@ public partial class MainWindow
 
                     string sheetName = SanitizeExcelSheetName($"{group.Name}-{sub.Name}", usedNames);
                     var ws = workbook.Worksheets.Add(sheetName);
-                    string[] headers = { "ردیف", "گروه", "زیرگروه", "بارکد", "تاریخ و ساعت ثبت" };
+                    string[] headers = { "ردیف", "گروه", "زیرگروه", "بارکد", "واحد در هر بارکد", "واحد باقی‌مانده از این بارکد", "تاریخ و ساعت ثبت" };
                     for (int i = 0; i < headers.Length; i++)
                     {
                         var cell = ws.Cell(1, i + 1);
@@ -460,7 +758,9 @@ public partial class MainWindow
                         ws.Cell(r, 2).Value = group.Name;
                         ws.Cell(r, 3).Value = sub.Name;
                         ws.Cell(r, 4).Value = entry.Barcode;
-                        ws.Cell(r, 5).Value = entry.ScannedAtUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm:ss");
+                        ws.Cell(r, 5).Value = sub.UnitsPerBarcode;
+                        ws.Cell(r, 6).Value = entry.RemainingUses;
+                        ws.Cell(r, 7).Value = entry.ScannedAtUtc.ToLocalTime().ToString("yyyy/MM/dd HH:mm:ss");
                         r++;
                     }
                     ws.Columns().AdjustToContents();
@@ -639,6 +939,17 @@ internal static class HighUsageUi
         button.Background = new SolidColorBrush(background);
         button.Foreground = new SolidColorBrush(foreground);
     }
+
+    // متن تعداد باقی‌مانده‌ی یک زیرگروه برای نمایش روی دکمه‌ها/هدرها. اگر هر بارکد فقط یک واحد
+    // پوشش می‌دهد (حالت معمولِ قبلی)، فقط همان عدد ساده نشان داده می‌شود؛ اگر بیشتر از یک واحد
+    // پوشش می‌دهد (بارکد جعبه‌ای)، هم تعداد بارکد (جعبه) هم مجموع واحدهای باقی‌مانده نشان داده می‌شود.
+    internal static string FormatSubgroupCount(HighUsageBarcodeSubgroup sub)
+    {
+        int totalUnits = sub.Entries.Sum(e => e.RemainingUses);
+        if (sub.UnitsPerBarcode <= 1)
+            return $"{totalUnits} عدد";
+        return $"{sub.Entries.Count} بارکد، {totalUnits} واحد";
+    }
 }
 
 // =====================================================================================
@@ -650,15 +961,25 @@ public class HighUsageBarcodeWidgetWindow : Window
 {
     public event EventHandler? WidgetClicked;
     public event EventHandler? WidgetMoved;
+    // با کلیک روی دکمه‌ی کوچک ✕ گوشه‌ی آیکون شناور صدا زده می‌شود (برای بستن/غیرفعال کردن آیکون).
+    public event EventHandler? CloseRequested;
 
     private Point _dragStartPoint;
     private bool _isDragging;
     private bool _dragMoved;
 
+    // اندازه‌ی خودِ آیکون ۶۰x۶۰ است؛ ولی پنجره کمی بزرگ‌تر (۶۸x۶۸) گرفته می‌شود و آیکون به گوشه‌ی
+    // پایین-چپ آن می‌چسبد تا فضای گوشه‌ی بالا-راست برای دکمه‌ی ✕ آزاد بماند - وگرنه چون خودِ پنجره
+    // یک AllowsTransparency=True با اندازه‌ی دقیق ۶۰x۶۰ بود، هر چیزی با مارجین منفی (بیرون از آن
+    // ۶۰x۶۰) توسط خودِ پنجره برش می‌خورد و ناقص/بدشکل دیده می‌شد (باگ گزارش‌شده).
+    private const double IconSize = 60;
+    private const double WindowPadding = 8;
+    private const double WidgetWindowSize = IconSize + WindowPadding;
+
     public HighUsageBarcodeWidgetWindow(double savedLeft, double savedTop)
     {
-        Width = 60;
-        Height = 60;
+        Width = WidgetWindowSize;
+        Height = WidgetWindowSize;
         WindowStyle = System.Windows.WindowStyle.None;
         AllowsTransparency = true;
         Background = System.Windows.Media.Brushes.Transparent;
@@ -671,24 +992,59 @@ public class HighUsageBarcodeWidgetWindow : Window
         Left = (savedLeft >= workArea.Left && savedLeft <= workArea.Right - Width) ? savedLeft : workArea.Right - Width - 24;
         Top = (savedTop >= workArea.Top && savedTop <= workArea.Bottom - Height) ? savedTop : workArea.Bottom - Height - 24;
 
+        // مربعی (نه دایره‌ای) با گوشه‌های کمی گرد، هم‌استایل بقیه‌ی عناصر گردگوشه‌ی برنامه.
         var border = new Border
         {
-            Width = 60,
-            Height = 60,
-            CornerRadius = new CornerRadius(30),
+            Width = IconSize,
+            Height = IconSize,
+            CornerRadius = new CornerRadius(12),
             Background = new SolidColorBrush(Color.FromRgb(0xEA, 0x58, 0x0C)),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
+            VerticalAlignment = System.Windows.VerticalAlignment.Bottom,
             // طراحی «فلت» طبق درخواست کاربر - بدون سایه/هاله‌ی تیره‌ی سه‌بعدی دور آیکون.
             Cursor = Cursors.Hand
         };
-        var text = new TextBlock
+
+        // به‌جای ایموجی، از لوگوی خود برنامه (Assets/app-icon.ico) استفاده می‌شود.
+        var logoImage = new System.Windows.Controls.Image
         {
-            Text = "📦",
-            FontSize = 26,
+            Width = 36,
+            Height = 36,
+            Stretch = System.Windows.Media.Stretch.Uniform,
             HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
             VerticalAlignment = System.Windows.VerticalAlignment.Center
         };
-        border.Child = text;
-        Content = border;
+        try
+        {
+            logoImage.Source = new System.Windows.Media.Imaging.BitmapImage(
+                new Uri("pack://application:,,,/Assets/app-icon.ico", UriKind.Absolute));
+        }
+        catch { }
+        border.Child = logoImage;
+
+        // دکمه‌ی کوچک ✕ گوشه‌ی بالا-راست، برای بستن آیکون شناور - هم‌استایل بقیه‌ی دکمه‌های گردگوشه‌ی
+        // این ویژگی (HighUsageUi.CreateRoundedButton). فرزندِ هم‌سطحِ border داخل همان Grid است (نه
+        // فرزند خودِ border) تا کلیک روی آن با منطق کشیدن/کلیکِ آیکون اصلی تداخل نکند؛ کاملاً داخل
+        // محدوده‌ی پنجره (بدون مارجین منفی) تا هرگز برش نخورد؛ و طبق درخواست کاربر، فقط وقتی موس
+        // روی آیکون شناور می‌رود نمایان می‌شود (نه همیشه).
+        var closeButton = HighUsageUi.CreateRoundedButton("✕", Color.FromRgb(0x37, 0x41, 0x51), Colors.White, 20, 20, 11);
+        closeButton.HorizontalAlignment = System.Windows.HorizontalAlignment.Right;
+        closeButton.VerticalAlignment = System.Windows.VerticalAlignment.Top;
+        closeButton.Margin = new Thickness(0);
+        closeButton.ToolTip = "بستن";
+        closeButton.Visibility = System.Windows.Visibility.Collapsed;
+        closeButton.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
+
+        var root = new Grid { Width = WidgetWindowSize, Height = WidgetWindowSize };
+        root.Children.Add(border);
+        root.Children.Add(closeButton);
+        Content = root;
+
+        // ✕ فقط وقتی موس روی کل آیکون شناور (خودِ آیکون یا دکمه) است نشان داده شود؛ در حالت عادی
+        // مخفی است. IsMouseOver روی Grid تا وقتی موس روی هر کدام از فرزندانش باشد true می‌ماند، پس
+        // بردن موس از روی آیکون به روی خودِ دکمه‌ی ✕ باعث مخفی‌شدنش نمی‌شود.
+        root.MouseEnter += (_, _) => closeButton.Visibility = System.Windows.Visibility.Visible;
+        root.MouseLeave += (_, _) => closeButton.Visibility = System.Windows.Visibility.Collapsed;
 
         border.PreviewMouseLeftButtonDown += Border_PreviewMouseLeftButtonDown;
         border.PreviewMouseMove += Border_PreviewMouseMove;
@@ -890,7 +1246,7 @@ public class HighUsageBarcodePickerWindow : Window
         var wrap = new WrapPanel();
         foreach (var sub in group.Subgroups)
         {
-            var btn = HighUsageUi.CreateRoundedButton($"{sub.Name}  ({sub.Entries.Count})", Color.FromRgb(0x0E, 0xA5, 0xE9), Colors.White, 168, 44, 13);
+            var btn = HighUsageUi.CreateRoundedButton($"{sub.Name}  ({HighUsageUi.FormatSubgroupCount(sub)})", Color.FromRgb(0x0E, 0xA5, 0xE9), Colors.White, 168, 44, 13);
             btn.Margin = new Thickness(0, 0, 8, 8);
             btn.IsEnabled = sub.Entries.Count > 0;
             if (sub.Entries.Count == 0)
@@ -1192,7 +1548,7 @@ public class HighUsageBarcodeManagerWindow : Window
                 bool isSelected = sub.Id == _selectedSubgroupId;
                 bool isCapturing = _owner.HighUsageCaptureSubgroupId == sub.Id;
                 var subBtn = HighUsageUi.CreateRoundedButton(
-                    $"{sub.Name} ({sub.Entries.Count}){(isCapturing ? " 🔴" : "")}",
+                    $"{sub.Name} ({HighUsageUi.FormatSubgroupCount(sub)}){(isCapturing ? " 🔴" : "")}",
                     isSelected ? Color.FromRgb(0x0E, 0x74, 0x90) : Color.FromRgb(0x0E, 0xA5, 0xE9),
                     Colors.White, 0, 38, 12);
                 string subgroupId = sub.Id;
@@ -1257,8 +1613,8 @@ public class HighUsageBarcodeManagerWindow : Window
             return;
         }
 
-        _entriesHeaderText.Text = $"بارکدهای «{subgroup.Name}»";
-        _remainingCountText.Text = $"{subgroup.Entries.Count} عدد باقی مانده در صف";
+        _entriesHeaderText.Text = $"بارکدهای «{subgroup.Name}»" + (subgroup.UnitsPerBarcode > 1 ? $" (هر بارکد {subgroup.UnitsPerBarcode} واحد)" : "");
+        _remainingCountText.Text = $"{HighUsageUi.FormatSubgroupCount(subgroup)} باقی مانده در صف";
 
         bool isCapturing = _owner.HighUsageCaptureSubgroupId == subgroup.Id;
         _captureToggleButton.Visibility = System.Windows.Visibility.Visible;
@@ -1295,7 +1651,9 @@ public class HighUsageBarcodeManagerWindow : Window
 
             var barcodeText = new TextBlock
             {
-                Text = entry.Barcode,
+                Text = subgroup.UnitsPerBarcode > 1
+                    ? $"{entry.Barcode}   ({entry.RemainingUses} از {subgroup.UnitsPerBarcode} واحد باقی مانده)"
+                    : entry.Barcode,
                 VerticalAlignment = System.Windows.VerticalAlignment.Center,
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
@@ -1363,9 +1721,19 @@ public class HighUsageBarcodeManagerWindow : Window
 
     private void PromptAddSubgroup(string groupId)
     {
-        var input = HighUsageTextInputWindow.Prompt(this, "زیرگروه جدید", "نام زیرگروه (مثلاً رینگر):");
-        if (string.IsNullOrWhiteSpace(input)) return;
-        var sub = _owner.AddHighUsageSubgroup(groupId, input.Trim());
+        var (name, unitsText) = HighUsageTextInputWindow.PromptWithSecondary(
+            this,
+            "زیرگروه جدید",
+            "نام زیرگروه (مثلاً رینگر):",
+            "هر بارکد چند واحد را پوشش می‌دهد؟",
+            "1",
+            "برای بارکدهایی که هر واحد بارکد جداگانه‌ی خودش را دارد (مثلاً هر سرم)، عدد ۱ بگذارید. " +
+            "برای بارکدی که فقط روی جعبه است و چند واحد را با هم پوشش می‌دهد (مثلاً یک جعبه‌ی ۲۰ ویالی " +
+            "پنتوپرازول که خودِ ویال‌ها بارکد جدا ندارند)، همان تعداد (مثلاً ۲۰) را بگذارید - هر بار " +
+            "استفاده از آن بارکد یک واحد کم می‌شود و وقتی تمام شد، خودش از صف حذف می‌شود.");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        int units = int.TryParse((unitsText ?? "").Trim(), out var parsedUnits) && parsedUnits > 0 ? parsedUnits : 1;
+        var sub = _owner.AddHighUsageSubgroup(groupId, name.Trim(), units);
         if (sub != null)
             _selectedSubgroupId = sub.Id;
         RefreshFromSource();
@@ -1378,9 +1746,15 @@ public class HighUsageBarcodeManagerWindow : Window
 public class HighUsageTextInputWindow : Window
 {
     private readonly TextBox _textBox;
+    private readonly TextBox? _secondaryTextBox;
     public string? ResultText { get; private set; }
+    public string? SecondaryResultText { get; private set; }
 
-    public HighUsageTextInputWindow(string title, string label)
+    // secondaryLabel/secondaryDefaultValue/secondaryHint: وقتی secondaryLabel داده شود، یک فیلد
+    // دومِ اختیاری (مثلاً «هر بارکد چند واحد را پوشش می‌دهد؟») زیر فیلد اصلی اضافه می‌شود - برای
+    // این‌که پنجره‌ی مشترک ورودی متن (که قبلاً فقط یک فیلد داشت) بدون تکرار کد، برای «زیرگروه جدید»
+    // هم قابل استفاده باشد.
+    public HighUsageTextInputWindow(string title, string label, string? secondaryLabel = null, string secondaryDefaultValue = "", string? secondaryHint = null)
     {
         Title = title;
         Width = 380;
@@ -1426,6 +1800,48 @@ public class HighUsageTextInputWindow : Window
         };
         stack.Children.Add(_textBox);
 
+        if (secondaryLabel != null)
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = secondaryLabel,
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(0x37, 0x41, 0x51)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 14, 0, 10)
+            });
+
+            _secondaryTextBox = new TextBox
+            {
+                Text = secondaryDefaultValue,
+                FontSize = 14,
+                Padding = new Thickness(8),
+                Height = 38,
+                VerticalContentAlignment = System.Windows.VerticalAlignment.Center,
+                FlowDirection = System.Windows.FlowDirection.LeftToRight,
+                TextAlignment = TextAlignment.Left
+            };
+            _secondaryTextBox.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter) { AcceptAndClose(); e.Handled = true; }
+                else if (e.Key == Key.Escape) { Close(); e.Handled = true; }
+            };
+            stack.Children.Add(_secondaryTextBox);
+
+            if (!string.IsNullOrWhiteSpace(secondaryHint))
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = secondaryHint,
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80)),
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 6, 0, 0)
+                });
+            }
+        }
+
         var buttonsRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 16, 0, 0) };
         var okBtn = HighUsageUi.CreateRoundedButton("تایید", Color.FromRgb(0xEA, 0x58, 0x0C), Colors.White, 90, 38, 13);
         okBtn.Margin = new Thickness(0, 0, 8, 0);
@@ -1445,6 +1861,7 @@ public class HighUsageTextInputWindow : Window
     private void AcceptAndClose()
     {
         ResultText = _textBox.Text;
+        SecondaryResultText = _secondaryTextBox?.Text;
         DialogResult = true;
     }
 
@@ -1453,6 +1870,13 @@ public class HighUsageTextInputWindow : Window
         var win = new HighUsageTextInputWindow(title, label) { Owner = owner };
         bool? result = win.ShowDialog();
         return result == true ? win.ResultText : null;
+    }
+
+    public static (string? name, string? secondary) PromptWithSecondary(Window owner, string title, string label, string secondaryLabel, string secondaryDefaultValue, string? secondaryHint = null)
+    {
+        var win = new HighUsageTextInputWindow(title, label, secondaryLabel, secondaryDefaultValue, secondaryHint) { Owner = owner };
+        bool? result = win.ShowDialog();
+        return result == true ? (win.ResultText, win.SecondaryResultText) : (null, null);
     }
 }
 
@@ -1613,7 +2037,7 @@ public class HighUsageExportSelectionWindow : Window
             {
                 var cb = new CheckBox
                 {
-                    Content = $"{sub.Name} ({sub.Entries.Count} عدد)",
+                    Content = $"{sub.Name} ({HighUsageUi.FormatSubgroupCount(sub)})",
                     IsChecked = true,
                     FontSize = 12,
                     Tag = sub.Id,
