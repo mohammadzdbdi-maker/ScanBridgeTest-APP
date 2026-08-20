@@ -74,6 +74,27 @@ public partial class App : System.Windows.Application
             args.Handled = true;
         };
 
+        // تا اینجا فقط خطاهای thread رابط کاربری (DispatcherUnhandledException) لاگ می‌شدند. دو
+        // دسته‌ی مهم دیگر از خطا اصلاً هیچ‌جا ثبت نمی‌شدند و در نتیجه در گزارش تشخیصی هم دیده
+        // نمی‌شدند - یعنی اگر یکی از این‌ها باعث مشکل کاربر می‌شد، فایل گزارش تشخیصی که برای
+        // پشتیبانی می‌فرستاد کاملاً خالی از سرنخ بود:
+        // ۱) استثناهای thread پس‌زمینه (مثلاً داخل Task.Run بدون await/catch) - این‌ها کل برنامه را
+        //    از پا در می‌آورند، بدون هیچ اثری در لاگ.
+        // ۲) استثناهای Task هایی که «آتش‌وفراموش» صدا زده شده‌اند (الگوی رایج در این پروژه:
+        //    _ = SomeAsyncMethodAsync(); بدون await) - در دات‌نت این‌ها به‌طور پیش‌فرض برنامه را
+        //    نمی‌ترکانند، اما بی‌صدا هم قورت داده می‌شدند و هیچ اثری باقی نمی‌ماند.
+        AppDomain.CurrentDomain.UnhandledException += (s, args) =>
+        {
+            if (args.ExceptionObject is Exception bgEx)
+                LogStartupError(bgEx, "AppDomain.UnhandledException" + (args.IsTerminating ? " (Terminating)" : ""));
+        };
+
+        System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, args) =>
+        {
+            LogStartupError(args.Exception, "TaskScheduler.UnobservedTaskException");
+            args.SetObserved();
+        };
+
         try
         {
             LogStartupTrace("Creating ScanBridgeService...");
