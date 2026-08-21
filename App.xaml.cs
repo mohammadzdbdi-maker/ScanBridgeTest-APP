@@ -20,25 +20,40 @@ public partial class App : System.Windows.Application
     private int _lastConnectedClients = 0;
     private LocalizationManager _localization = LocalizationManager.Instance;
 
-    private static void LogStartupTrace(string message)
+    // مسیر نصب (AppContext.BaseDirectory) گاهی write-protected است (مثلاً برنامه داخل Program
+    // Files و کاربر بدون دسترسی مدیر نصب کرده). قبلاً در این حالت هر سه فایل لاگ
+    // (startup-trace.log/startup-error.log) بی‌صدا هیچ‌وقت نوشته نمی‌شدند و کل مکانیزم تشخیص
+    // خطا (از جمله گزارش تشخیصی که کاربر برای پشتیبانی می‌فرستد) بدون هیچ رد یا هشداری از کار
+    // می‌افتاد (باگ گزارش ممیزی). حالا اگر نوشتن در مسیر نصب شکست بخورد، یک‌بار هم پوشه‌ی
+    // AppData کاربر (که تقریباً همیشه قابل‌نوشتن است) امتحان می‌شود.
+    private static void AppendAppLogLine(string fileName, string text)
     {
         try
         {
-            string path = System.IO.Path.Combine(AppContext.BaseDirectory, "startup-trace.log");
-            System.IO.File.AppendAllText(path, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}\n");
+            string path = System.IO.Path.Combine(AppContext.BaseDirectory, fileName);
+            System.IO.File.AppendAllText(path, text);
+            return;
+        }
+        catch { }
+
+        try
+        {
+            string fallbackDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Scanbridge", "logs");
+            System.IO.Directory.CreateDirectory(fallbackDir);
+            System.IO.File.AppendAllText(System.IO.Path.Combine(fallbackDir, fileName), text);
         }
         catch { }
     }
 
+    private static void LogStartupTrace(string message)
+    {
+        AppendAppLogLine("startup-trace.log", $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}\n");
+    }
+
     private static void LogStartupError(Exception ex, string section)
     {
-        try
-        {
-            string path = System.IO.Path.Combine(AppContext.BaseDirectory, "startup-error.log");
-            string text = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {section}\n{ex}\n\n";
-            System.IO.File.AppendAllText(path, text);
-        }
-        catch { }
+        AppendAppLogLine("startup-error.log", $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {section}\n{ex}\n\n");
     }
 
     protected override void OnStartup(StartupEventArgs e)

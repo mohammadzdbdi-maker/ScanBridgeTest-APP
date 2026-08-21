@@ -628,16 +628,48 @@ public class DrugLookupService
         {
             string logPath = System.IO.Path.Combine(AppContext.BaseDirectory, "drug_lookup.log");
             System.IO.File.AppendAllText(logPath, logLine + Environment.NewLine);
+            return;
         }
         catch { }
+
+        // اگر پوشه‌ی نصب برنامه read-only باشد (مثلاً زیر Program Files بدون دسترسی نوشتن)، نوشتن
+        // در AppContext.BaseDirectory بی‌صدا شکست می‌خورد و کل تاریخچه‌ی جستجوی دارو بدون هیچ ردی
+        // گم می‌شود - این‌جا مثل الگوی AppendAppLogLine در MainWindow/App، یک مسیر جایگزین قابل‌نوشتن
+        // در AppData امتحان می‌شود تا لاگ حداقل یک‌جایی ذخیره شود (بخشی از باگ ۵۰ گزارش ممیزی).
+        try
+        {
+            string fallbackDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Scanbridge", "logs");
+            System.IO.Directory.CreateDirectory(fallbackDir);
+            System.IO.File.AppendAllText(System.IO.Path.Combine(fallbackDir, "drug_lookup.log"), logLine + Environment.NewLine);
+        }
+        catch { }
+    }
+
+    private static string? GetLogFilePathForReading()
+    {
+        string primaryPath = System.IO.Path.Combine(AppContext.BaseDirectory, "drug_lookup.log");
+        if (System.IO.File.Exists(primaryPath))
+            return primaryPath;
+
+        try
+        {
+            string fallbackPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Scanbridge", "logs", "drug_lookup.log");
+            if (System.IO.File.Exists(fallbackPath))
+                return fallbackPath;
+        }
+        catch { }
+
+        return null;
     }
 
     public static void OpenLogFile()
     {
         try
         {
-            string logPath = System.IO.Path.Combine(AppContext.BaseDirectory, "drug_lookup.log");
-            if (System.IO.File.Exists(logPath))
+            string? logPath = GetLogFilePathForReading();
+            if (logPath != null)
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {

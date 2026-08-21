@@ -531,14 +531,56 @@ nQIDAQAB
         catch { }
     }
 
-    private static void TraceMainWindowStartup(string message)
+    // مسیر نصب (AppContext.BaseDirectory) گاهی write-protected است (مثلاً برنامه داخل Program
+    // Files و کاربر بدون دسترسی مدیر نصب کرده). قبلاً در این حالت این دو فایل لاگ بی‌صدا هیچ‌وقت
+    // نوشته نمی‌شدند - یعنی خود گزارش تشخیصی هم که کاربر برای پشتیبانی می‌فرستد، همیشه خالی
+    // می‌ماند، بدون هیچ هشداری که چرا (باگ گزارش ممیزی). حالا اگر نوشتن در مسیر نصب شکست بخورد،
+    // یک‌بار هم پوشه‌ی AppData کاربر (تقریباً همیشه قابل‌نوشتن) امتحان می‌شود؛ GenerateDiagnosticsReport
+    // هم همین مسیر جایگزین را چک می‌کند (نگاه کنید به GetAppLogFilePathForReading).
+    private static void AppendAppLogLine(string fileName, string text)
     {
         try
         {
-            string path = Path.Combine(AppContext.BaseDirectory, "startup-trace.log");
-            File.AppendAllText(path, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}\n");
+            string path = Path.Combine(AppContext.BaseDirectory, fileName);
+            File.AppendAllText(path, text);
+            return;
         }
         catch { }
+
+        try
+        {
+            string fallbackDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Scanbridge", "logs");
+            Directory.CreateDirectory(fallbackDir);
+            File.AppendAllText(Path.Combine(fallbackDir, fileName), text);
+        }
+        catch { }
+    }
+
+    // برای GenerateDiagnosticsReport: مسیر واقعی یک فایل لاگ را برمی‌گرداند - اول مسیر نصب، اگر
+    // آنجا وجود نداشت (مثلاً چون write-protected بوده و AppendAppLogLine مجبور شده fallback را
+    // استفاده کند)، مسیر AppData را چک می‌کند.
+    private static string? GetAppLogFilePathForReading(string fileName)
+    {
+        string primaryPath = Path.Combine(AppContext.BaseDirectory, fileName);
+        if (File.Exists(primaryPath))
+            return primaryPath;
+
+        try
+        {
+            string fallbackPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Scanbridge", "logs", fileName);
+            if (File.Exists(fallbackPath))
+                return fallbackPath;
+        }
+        catch { }
+
+        return null;
+    }
+
+    private static void TraceMainWindowStartup(string message)
+    {
+        AppendAppLogLine("startup-trace.log", $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}\n");
     }
 
     // برای گزارش خطاهایی که در هندلرهای پس‌زمینه/رویدادها رخ می‌دهند (مثل ScanReceived)
@@ -546,13 +588,7 @@ nQIDAQAB
     // در صورت نیاز قابل بررسی باشند.
     private static void LogBackgroundHandlerError(Exception ex, string section)
     {
-        try
-        {
-            string path = Path.Combine(AppContext.BaseDirectory, "startup-error.log");
-            string text = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {section}\n{ex}\n\n";
-            File.AppendAllText(path, text);
-        }
-        catch { }
+        AppendAppLogLine("startup-error.log", $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {section}\n{ex}\n\n");
     }
 
 
@@ -1135,8 +1171,12 @@ nQIDAQAB
         _ttacRegistrationHistoryLoadedPharmacyKey = "default";
         _ttacRegistrationHistory.Clear();
         _historyLoadedPharmacyKey = "default";
-        HistoryItems.Clear();
-        ApplyHistoryFilters();
+        // قبلاً اینجا فقط HistoryItems.Clear() + ApplyHistoryFilters() صدا زده می‌شد - یعنی
+        // تاریخچه‌ی واقعیِ روی دیسکِ بخش «default» هیچ‌وقت دوباره بارگذاری نمی‌شد و پنل تاریخچه
+        // تا ری‌استارت بعدی برنامه خالی می‌ماند، حتی اگر «default» قبلاً اسکن‌هایی داشت
+        // (باگ گزارش ممیزی، «موارد کوچک‌تر»). LoadHistoryFromCsv خودش هم پاک‌سازی هم بارگذاری
+        // واقعی از فایل CSV همین کلید را انجام می‌دهد.
+        LoadHistoryFromCsv();
 
         try
         {
@@ -2434,6 +2474,13 @@ nQIDAQAB
             ReceiveStatusItems.Insert(0, row);
             RefreshReceiveStatusRowNumbers();
             _receiveStatusKnownBarcodes.Add(barcode);
+            // این متد هم از مسیر «آنی هنگام اسکن» (وقتی توکن معتبر است) صدا زده می‌شود، هم از
+            // صف ProcessQueuedReceiveStatusBarcodesAsync. قبلاً فقط آن حلقه‌ی صف، آیتم را از
+            // _queuedReceiveStatusBarcodes حذف می‌کرد - یعنی مسیر آنی هرچقدر هم موفق می‌شد، صف
+            // خودش خالی نمی‌شد و در طول یک روز پرمصرف بدون باز شدن پنل، فقط بزرگ‌تر می‌شد؛ وقتی
+            // پنل بالاخره باز می‌شد، همه‌ی آن بارکدهای از قبل موفق دوباره (بی‌فایده) پردازش
+            // می‌شدند (باگ گزارش ممیزی). حذف همین‌جا تضمین می‌کند موفقیت از هر مسیری صف را خالی کند.
+            _queuedReceiveStatusBarcodes.RemoveAll(x => x.Equals(barcode, StringComparison.OrdinalIgnoreCase));
             SaveCurrentReceiveStatusItemsForCurrentPharmacy();
             ReceiveStatusManualTextBox.Text = string.Empty;
         }
@@ -2448,6 +2495,7 @@ nQIDAQAB
                         _localization.GetString("TTACReturnedAnEmptyResultForThisReceiveStatusRequest")));
                     RefreshReceiveStatusRowNumbers();
                     _receiveStatusKnownBarcodes.Add(barcode);
+                    _queuedReceiveStatusBarcodes.RemoveAll(x => x.Equals(barcode, StringComparison.OrdinalIgnoreCase));
                 }
                 return;
             }
@@ -4656,6 +4704,19 @@ nQIDAQAB
             bool forceElectronicPrescription = formulaMode == FormulaRegistrationMode.PrescriptionBased;
             bool forceNonePrescription = formulaMode == FormulaRegistrationMode.NoPrescription;
             await OpenTtTeckRegistrationForRowAfterLoginAsync(row, forceNonePrescription, forceElectronicPrescription);
+
+            // اگر ورود تی‌تک لازم بود (توکن معتبر نبود) و کاربر پاپ‌آپ ورود را بدون تکمیل بست،
+            // OpenTtTeckRegistrationForRowAfterLoginAsync برمی‌گردد بدون اینکه واقعاً فرم ثبت را
+            // باز کرده باشد. قبلاً کلید بالا (_autoOpenedFormulaRegistrationKeys.Add) در همین حالت
+            // هم می‌ماند - یعنی اسکن دوباره‌ی همین بارکد تا آخر نشست دیگر هیچ‌وقت خودکار فرم را
+            // باز نمی‌کرد، چون هیچ نقطه‌ای (نه CloseTtTeckRegistrationOverlay، چون اصلاً باز نشد)
+            // آن را پاک نمی‌کرد (باگ گزارش ممیزی). اگر واقعاً باز نشده، همین‌جا پاک می‌شود تا اسکن
+            // بعدی دوباره تلاش کند.
+            bool actuallyOpened = TtTeckRegistrationOverlay.Visibility == Visibility.Visible
+                && _pendingRegistrationTtTeckRow != null
+                && string.Equals(_pendingRegistrationTtTeckRow.Barcode, record.Barcode, StringComparison.OrdinalIgnoreCase);
+            if (!actuallyOpened)
+                _autoOpenedFormulaRegistrationKeys.Remove(key);
         }));
     }
 
@@ -9952,7 +10013,13 @@ nQIDAQAB
             // فیلتر می‌زد، تعداد کمی رکورد روی صفحه می‌دید، ولی اکسل کل تاریخچه را می‌گرفت.
             foreach (var item in GetFilteredHistoryRecords())
             {
-                if (_isExportingOnlyTtTeck && item.Source != BarcodeSource.TtTeck)
+                // قبلاً اینجا فقط item.Source == BarcodeSource.TtTeck چک می‌شد - یک تشخیص ساده‌تر
+                // و ضعیف‌تر از IsTtTeckHistoryRecord که فیلتر روی صفحه و خروجی PDF از آن استفاده
+                // می‌کنند (که علاوه‌بر Source، نوع بارکد و IsTtTeckLookupCandidate را هم چک
+                // می‌کند). نتیجه: رکوردهایی که روی صفحه/PDF جزو «فقط تی‌تک» حساب می‌شدند، ممکن بود
+                // در همین خروجی اکسل جا بمانند (باگ گزارش ممیزی). حالا هر سه از یک معیار استفاده
+                // می‌کنند.
+                if (_isExportingOnlyTtTeck && !IsTtTeckHistoryRecord(item))
                     continue;
 
                 worksheet.Cell(rowNumber, 1).Value = itemNumber;
@@ -11795,8 +11862,8 @@ nQIDAQAB
 
         try
         {
-            string tracePath = Path.Combine(AppContext.BaseDirectory, "startup-trace.log");
-            if (File.Exists(tracePath))
+            string? tracePath = GetAppLogFilePathForReading("startup-trace.log");
+            if (tracePath != null)
             {
                 var traceLines = File.ReadAllLines(tracePath);
                 var lastLines = traceLines.Length > 150 ? traceLines[^150..] : traceLines;
@@ -11810,8 +11877,8 @@ nQIDAQAB
 
         try
         {
-            string errorPath = Path.Combine(AppContext.BaseDirectory, "startup-error.log");
-            if (File.Exists(errorPath))
+            string? errorPath = GetAppLogFilePathForReading("startup-error.log");
+            if (errorPath != null)
             {
                 string errorText = File.ReadAllText(errorPath);
                 // اگر فایل خیلی بزرگ شده (روزها/هفته‌ها جمع شده)، فقط بخش پایانی (جدیدترین خطاها)

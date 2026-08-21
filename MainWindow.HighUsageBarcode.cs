@@ -104,6 +104,9 @@ public partial class MainWindow
     private HighUsageBarcodePickerWindow? _highUsagePickerWindow;
     private string? _highUsageCaptureSubgroupId;
     private IntPtr _highUsageCapturedForegroundWindow = IntPtr.Zero;
+    // نگاه کنید به توضیح داخل DispenseHighUsageBarcodeAsync - مطمئن می‌شود اگر کاربر سریع روی
+    // دو زیرگروه مختلف کلیک کند، تایپ دو بارکد روی هم قاطی نشود.
+    private readonly SemaphoreSlim _highUsageDispenseTypeLock = new(1, 1);
     // اگر خواندن high-usage-barcodes.dat شکست بخورد (مثلاً فایل موقتاً توسط آنتی‌ویروس قفل شده،
     // یا خطای دیسک)، این true می‌شود. قبلاً در این حالت _highUsageGroups بی‌صدا خالی می‌شد و اولین
     // ذخیره‌ی بعدی (حتی یک تغییر محلی کوچک، یا یک عملیات LAN که از سیستم دیگری می‌رسد) همان بانکِ
@@ -384,6 +387,7 @@ public partial class MainWindow
             {
                 SaveHighUsageBarcodeGroups();
                 try { _highUsageManagerWindow?.RefreshFromSource(); } catch { }
+                try { _highUsagePickerWindow?.RefreshFromSource(); } catch { }
             }
         }
         catch { }
@@ -451,6 +455,7 @@ public partial class MainWindow
             {
                 SaveHighUsageBarcodeGroups();
                 try { _highUsageManagerWindow?.RefreshFromSource(); } catch { }
+                try { _highUsagePickerWindow?.RefreshFromSource(); } catch { }
             }
         }
         catch { }
@@ -654,6 +659,7 @@ public partial class MainWindow
         BroadcastHighUsageOperation(new { kind = "addEntry", subgroupId = subgroup.Id, entryId = newEntry.Id, barcode = newEntry.Barcode, scannedAtUtc = newEntry.ScannedAtUtc, remainingUses = newEntry.RemainingUses });
 
         try { _highUsageManagerWindow?.RefreshFromSource(); } catch { }
+        try { _highUsagePickerWindow?.RefreshFromSource(); } catch { }
         try
         {
             var record = new ScanRecord(DateTime.Now, barcode, subgroup.Name);
@@ -687,34 +693,50 @@ public partial class MainWindow
             subgroup.Entries.Remove(oldest);
         BroadcastHighUsageOperation(new { kind = "dispenseEntry", subgroupId = subgroup.Id, entryId = dispensedEntryId, remainingUsesAfter = remainingUsesAfterDispense });
 
+        // فقط همین بخش (بازگرداندن فوکوس + تایپ + Enter) سریالایز می‌شود، نه کل متد: اگر کاربر
+        // سریع روی دو زیرگروه مختلف کلیک کند، هر دو فراخوانی از یک IntPtr مشترک
+        // (_highUsageCapturedForegroundWindow) برای بازگرداندن فوکوس و تایپ استفاده می‌کنند - قبلاً
+        // هیچ قفلی نبود، پس اگر تایمینگ دو await Task.Delay نزدیک هم می‌افتاد، تایپ دو بارکد
+        // می‌توانست روی هم قاطی شود (باگ گزارش ممیزی). SemaphoreSlim مطمئن می‌شود در هر لحظه فقط
+        // یک تایپ واقعی در حال انجام است؛ کم/زیادکردن موجودی زیرگروه بالاتر - قبل از این قفل -
+        // بدون تاخیر باقی می‌ماند تا تعداد نمایش‌داده‌شده فوراً درست باشد.
+        await _highUsageDispenseTypeLock.WaitAsync();
         try
-        {
-            if (_highUsageCapturedForegroundWindow != IntPtr.Zero)
-                HighUsageNativeInterop.ForceSetForegroundWindow(_highUsageCapturedForegroundWindow);
-        }
-        catch { }
-
-        // کمی مکث تا فوکوس واقعاً به پنجره‌ی بیرونی برگردد، قبل از تایپ.
-        await Task.Delay(150);
-
-        try
-        {
-            KeyboardInjector.TypeText(dispensedBarcode);
-            KeyboardInjector.PressEnter();
-        }
-        catch
         {
             try
             {
-                System.Windows.Clipboard.SetText(dispensedBarcode);
-                System.Windows.Forms.SendKeys.SendWait("^v");
-                await Task.Delay(100);
-                System.Windows.Forms.SendKeys.SendWait("{ENTER}");
+                if (_highUsageCapturedForegroundWindow != IntPtr.Zero)
+                    HighUsageNativeInterop.ForceSetForegroundWindow(_highUsageCapturedForegroundWindow);
             }
             catch { }
+
+            // کمی مکث تا فوکوس واقعاً به پنجره‌ی بیرونی برگردد، قبل از تایپ.
+            await Task.Delay(150);
+
+            try
+            {
+                KeyboardInjector.TypeText(dispensedBarcode);
+                KeyboardInjector.PressEnter();
+            }
+            catch
+            {
+                try
+                {
+                    System.Windows.Clipboard.SetText(dispensedBarcode);
+                    System.Windows.Forms.SendKeys.SendWait("^v");
+                    await Task.Delay(100);
+                    System.Windows.Forms.SendKeys.SendWait("{ENTER}");
+                }
+                catch { }
+            }
+        }
+        finally
+        {
+            _highUsageDispenseTypeLock.Release();
         }
 
         try { _highUsageManagerWindow?.RefreshFromSource(); } catch { }
+        try { _highUsagePickerWindow?.RefreshFromSource(); } catch { }
 
         int remainingUnits = subgroup.Entries.Sum(x => x.RemainingUses);
         return (true, dispensedBarcode, remainingUnits, subgroup.Name);
@@ -1209,6 +1231,17 @@ public class HighUsageBarcodePickerWindow : Window
     {
         base.OnSourceInitialized(e);
         try { HighUsageNativeInterop.ApplyNoActivate(this); } catch { }
+    }
+
+    // قبلاً این پنجره فقط موقع ساخته‌شدن یا جابه‌جایی بین لیست گروه‌ها/زیرگروه‌ها بازسازی
+    // می‌شد - اگر یک سیستم هم‌شبکه (LAN sync) یا خودِ همین سیستم (اسکن وارد صف زیرگروه) بانک را
+    // عوض می‌کرد درحالی‌که این پنجره باز بود، لیست/تعداد/فعال‌بودن دکمه‌ها به‌روز نمی‌شد (باگ
+    // گزارش ممیزی). فراخوانی‌کننده‌های تغییر بانک (ApplyHighUsageBarcodeOperation/Snapshot،
+    // TryCaptureHighUsageBarcode، DispenseHighUsageBarcodeAsync) حالا این متد را هم مثل
+    // HighUsageBarcodeManagerWindow.RefreshFromSource صدا می‌زنند.
+    public void RefreshFromSource()
+    {
+        BuildGroups();
     }
 
     private void BuildGroups()

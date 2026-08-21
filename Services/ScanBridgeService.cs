@@ -486,7 +486,13 @@ public sealed class ScanBridgeService : IDisposable
                 try { SafeSend(socket, JsonSerializer.Serialize(responseObj)); } catch { }
             }
         }
-        catch { }
+        // این catch سراسری پیام‌های ناسالم/غیرمنتظر از یک همکار روی شبکه (JSON خراب، ساختار غیرمنتظر
+        // و ...) را بی‌صدا نادیده می‌گرفت - یعنی اگر همگام‌سازی بین دو سیستم به‌طور مرموزی کار نمی‌کرد،
+        // هیچ ردی برای عیب‌یابی باقی نمی‌ماند (بخشی از باگ ۵۰ گزارش ممیزی).
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:O}] Peer message handling error: {ex.Message}");
+        }
     }
 
     private async Task DiscoveryReceiveLoopAsync(CancellationToken ct)
@@ -575,7 +581,13 @@ public sealed class ScanBridgeService : IDisposable
             byte[] bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(announce));
             await _discoveryUdp.SendAsync(bytes, bytes.Length, new IPEndPoint(IPAddress.Broadcast, DiscoveryPort));
         }
-        catch { }
+        // شکست در ارسال UDP broadcast (مثلاً به‌خاطر فایروال یا قطع موقت آداپتور شبکه) قبلاً کاملاً
+        // بی‌صدا بود؛ یعنی وقتی یک سیستم دیگر توسط بقیه دیده نمی‌شد، هیچ سرنخی در لاگ نبود که آیا
+        // اصلاً تلاش برای اعلام حضور انجام شده یا نه (بخشی از باگ ۵۰ گزارش ممیزی).
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:O}] Peer announce broadcast error: {ex.Message}");
+        }
     }
 
     private void PrunePeers()
