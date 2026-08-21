@@ -70,6 +70,13 @@ public partial class MainWindow
     // گرفتن کپچای تازه نزنیم.
     private string? _lastLoadedCaptchaImageBase64;
 
+    // «ثبت مجدد از روی گوشی»: کاربر روی دیالوگ موفقیتِ ثبت، دکمه‌ی «ثبت مجدد» را زده - یعنی
+    // می‌خواهد قلم بعدی را با همان اطلاعات بیمار (_lastFormulaRepeatContext در MainWindow.xaml.cs)
+    // فقط با اسکن بارکد + کپچای تازه ثبت کند. یک پرچم یک‌بارمصرف است؛ اولین اسکن بعدی
+    // (TryAutoOpenInfantFormulaRegistration در MainWindow.xaml.cs) آن را مصرف می‌کند - چه بارکد
+    // معتبر باشد چه قبلاً ثبت‌شده باشد.
+    private bool _remoteEntryRepeatArmed;
+
     private bool IsRemoteFormulaEntryActive =>
         !string.IsNullOrEmpty(_remoteEntryBarcode)
         && _pendingRegistrationTtTeckRow != null
@@ -366,6 +373,18 @@ public partial class MainWindow
 
             PushRemoteEntryStep(previous.StepId, previous.Label, previous.Hint,
                 previous.PhotoBase64, previous.CaptchaImageBase64, previous.InputType, isBack: true);
+        }));
+    }
+
+    // فراخوانی می‌شود وقتی از گوشی یک REMOTE_ENTRY_REPEAT_ARM می‌رسد (کاربر روی دیالوگ موفقیتِ ثبت
+    // شیرخشک، دکمه‌ی «ثبت مجدد» را زده). این پیام از یک ترد وب‌سوکت پس‌زمینه می‌رسد. اگر از ثبت
+    // قبلی هیچ context ای موجود نباشد (مثلاً برنامه همین الان استارت شده و هنوز چیزی ثبت نشده)،
+    // چیزی مسلح نمی‌شود - اسکن بعدی مثل همیشه (فرم خالی) باز می‌شود.
+    private void HandleRemoteEntryRepeatArmFromPhone()
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            _remoteEntryRepeatArmed = _lastFormulaRepeatContext != null;
         }));
     }
 }

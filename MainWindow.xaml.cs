@@ -489,6 +489,7 @@ nQIDAQAB
         _service.RemoteEntryValueReceived += (_, args) => HandleRemoteEntryValueFromPhone(args.Barcode, args.StepId, args.Value);
         _service.RemoteEntrySubmitReceived += (_, args) => HandleRemoteEntrySubmitFromPhone(args.Barcode);
         _service.RemoteEntryBackReceived += (_, args) => HandleRemoteEntryBackFromPhone(args.Barcode);
+        _service.RemoteEntryRepeatArmReceived += (_, _) => HandleRemoteEntryRepeatArmFromPhone();
 
         // همگام‌سازی بانک بارکد پرمصرف بین چند سیستم هم‌شبکه با همان لایسنس - نگاه کنید به
         // MainWindow.HighUsageBarcode.cs (ApplyHighUsageBarcodeOperation/ApplyHighUsageBarcodeSnapshot).
@@ -4669,6 +4670,12 @@ nQIDAQAB
         if (formulaMode == FormulaRegistrationMode.Unknown)
             return;
 
+        // اگر کاربر روی دیالوگ موفقیتِ گوشی دکمه‌ی «ثبت مجدد» را زده بود، همین اسکن (اولین اسکنِ
+        // بعد از آن) همان درخواستی است که منتظرش بودیم - این پرچم یک‌بارمصرف همین‌جا مصرف می‌شود،
+        // چه بارکد قبلاً ثبت شده باشد (شاخه‌ی زیر) چه فرم واقعاً باز شود (پایین‌تر).
+        bool repeatArmed = _remoteEntryRepeatArmed;
+        _remoteEntryRepeatArmed = false;
+
         // اگر این بارکد قبلاً در همین داروخانه ثبت شده، به‌جای فرم ثبت، تاریخچه‌ی ثبت همان محصول
         // را خودکار نشان بده تا کاربر نتواند دوباره ثبت کند.
         if (IsBarcodeTtacRegistered(record.Barcode))
@@ -4716,7 +4723,24 @@ nQIDAQAB
                 && _pendingRegistrationTtTeckRow != null
                 && string.Equals(_pendingRegistrationTtTeckRow.Barcode, record.Barcode, StringComparison.OrdinalIgnoreCase);
             if (!actuallyOpened)
+            {
                 _autoOpenedFormulaRegistrationKeys.Remove(key);
+            }
+            else if (repeatArmed && _lastFormulaRepeatContext != null)
+            {
+                // «ثبت مجدد» از روی گوشی: کادرها را با اطلاعات همان ثبتِ قبلی (کد ملی/تاریخ
+                // تولد/موبایل/شماره نظام) پر کن - دقیقاً مثل مسیر مشابه دسکتاپیِ
+                // OpenRepeatFormulaRegistrationForBarcodeAsync - و یک کپچای تازه بگیر. علامت‌زدن
+                // _remoteEntryWaitingForCaptcha کافی است: NotifyRemoteEntryCaptchaLoaded (که
+                // LoadTtacCaptchaAsync بعد از لود موفق کپچا صدا می‌زند) خودش مرحله‌ی کپچا را روی
+                // گوشی نشان می‌دهد - دیگر لازم نیست کاربر مراحل کد ملی/تاریخ تولد/موبایل را که
+                // خالی می‌شد یکی‌یکی رد کند.
+                ApplyFormulaRepeatContextToOpenForm(_lastFormulaRepeatContext);
+                if (IsRemoteFormulaEntryActiveFor(record.Barcode))
+                    _remoteEntryWaitingForCaptcha = true;
+                await LoadTtacCaptchaAsync(true);
+                FocusAndSelect(TtTeckRegistrationCaptchaTextBox);
+            }
         }));
     }
 
@@ -9038,7 +9062,7 @@ nQIDAQAB
             // یک هشدار با دکمه‌ی «باشه» نشان داده می‌شود - همراه با همان عکس شیرخشکی که در دیالوگ
             // «ثبت شد» دسکتاپ دیده شد (اگر عکسی برای این قلم موجود باشد).
             if (canRepeatFormulaRegistration)
-                _service?.BroadcastAlert(registeredTitle, successMessage, true, formulaPhotoPath);
+                _service?.BroadcastAlert(registeredTitle, successMessage, true, formulaPhotoPath, canRepeat: true);
         }
         catch (Exception ex)
         {

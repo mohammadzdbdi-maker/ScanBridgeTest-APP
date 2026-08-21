@@ -112,6 +112,12 @@ public sealed class ScanBridgeService : IDisposable
     // وقتی کاربر روی گوشی دکمه‌ی «قبلی» را زده (می‌خواهد به مرحله‌ی قبلِ ویزارد برگردد - مثلاً
     // چون یک کادر را اشتباه زده).
     public event EventHandler<RemoteEntryBackEventArgs>? RemoteEntryBackReceived;
+    // وقتی کاربر روی گوشی، روی دیالوگ موفقیتِ ثبت شیرخشک، دکمه‌ی «ثبت مجدد» را زده - یعنی می‌خواهد
+    // با همان اطلاعات بیمار (کد ملی/تاریخ تولد/موبایل/شماره نظام) که همین الان ثبت شد، قلم بعدی را
+    // فقط با اسکن بارکد + کپچای تازه ثبت کند. بارکدی همراه این پیام نیست - فقط یک «مسلح‌کردن»
+    // یک‌بارمصرف است؛ اولین اسکن بعدی مصرفش می‌کند (نگاه کنید به
+    // TryAutoOpenInfantFormulaRegistration در MainWindow.xaml.cs).
+    public event EventHandler? RemoteEntryRepeatArmReceived;
 
     public string ComputerId { get; }
     public string ComputerName { get; }
@@ -247,6 +253,11 @@ public sealed class ScanBridgeService : IDisposable
                 {
                     if (!string.IsNullOrWhiteSpace(barcode))
                         RemoteEntryBackReceived?.Invoke(this, new RemoteEntryBackEventArgs(barcode));
+                    return;
+                }
+                if (messageType == "REMOTE_ENTRY_REPEAT_ARM")
+                {
+                    RemoteEntryRepeatArmReceived?.Invoke(this, EventArgs.Empty);
                     return;
                 }
 
@@ -1039,7 +1050,10 @@ public sealed class ScanBridgeService : IDisposable
     /// کنار پیام نشان دهد؛ اگر فایل پیدا نشود یا خواندنش خطا بدهد، پیام بدون عکس (فقط متن) فرستاده
     /// می‌شود - این خطا نباید جلوی رسیدن خودِ پیام را بگیرد.
     /// </summary>
-    public void BroadcastAlert(string title, string body, bool success, string? photoPath = null)
+    // canRepeat فقط وقتی true است که این پیام یک ثبتِ شیرخشکِ واقعاً موفق را اعلام می‌کند (نه
+    // هشدار «قبلاً ثبت شده» و نه هیچ پیام دیگری) - گوشی با دیدن این پرچم، کنار دکمه‌ی «باشه» یک
+    // دکمه‌ی «ثبت مجدد» هم نشان می‌دهد.
+    public void BroadcastAlert(string title, string body, bool success, string? photoPath = null, bool canRepeat = false)
     {
         string? photoBase64 = null;
         if (!string.IsNullOrWhiteSpace(photoPath))
@@ -1061,7 +1075,8 @@ public sealed class ScanBridgeService : IDisposable
             title,
             body,
             success,
-            photoBase64
+            photoBase64,
+            canRepeat
         };
 
         string json = JsonSerializer.Serialize(payloadObj);
