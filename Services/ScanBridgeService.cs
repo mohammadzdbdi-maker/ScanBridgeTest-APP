@@ -61,6 +61,13 @@ public sealed class ScanBridgeService : IDisposable
     private readonly BlockingCollection<(IWebSocketConnection Socket, string Barcode, string DeviceName)> _keyboardQueue = new();
     private readonly ConcurrentDictionary<IWebSocketConnection, bool> _erroredConnections = new();
     private readonly ConcurrentDictionary<IWebSocketConnection, DeviceState> _connectedDevices = new();
+    // ack اسکن (صف پردازش)، پینگ سلامت (تایمر جدا)، و broadcastهای هشدار/ورود از راه دور همگی
+    // می‌توانند هم‌زمان بخواهند روی یک اتصال WebSocket بنویسند - چون IWebSocketConnection.Send
+    // خودش async است (Task برمی‌گرداند، نوشتن واقعی روی سوکت زیرین کامل نمی‌شود که برگردد)، دو
+    // Send هم‌زمان روی یک اتصال می‌توانستند بایت‌هایشان روی سیم قاطی شوند و فریم WebSocket را
+    // خراب کنند (باگ ۱۳ گزارش ممیزی). یک SemaphoreSlim به‌ازای هر سوکت (نگاه کنید به SafeSend)
+    // مطمئن می‌شود در هر لحظه فقط یک Send واقعاً در حال تکمیل‌شدن است.
+    private readonly ConcurrentDictionary<IWebSocketConnection, SemaphoreSlim> _socketSendGates = new();
     private readonly ConcurrentDictionary<string, DateTime> _manuallyBlockedDevices = new(StringComparer.OrdinalIgnoreCase);
     // یک دستگاه بلاک‌شده می‌تواند با اتصال مجدد و فرستادن بارکد به‌صورت متن‌ساده (پروتکل قدیمی،
     // بدون فیلد deviceName در JSON) بلاک روی نام را دور بزند - چون تشخیص بلاک فقط با deviceName
@@ -241,7 +248,7 @@ public sealed class ScanBridgeService : IDisposable
                 {
                     try
                     {
-                        _ = socket.Send("DISCONNECT");
+                        SafeSend(socket, "DISCONNECT");
                     }
                     catch { }
 
@@ -418,7 +425,7 @@ public sealed class ScanBridgeService : IDisposable
                     versionUtcMs = _lastDesktopSettingsVersionUtcMs,
                     payload = JsonDocument.Parse(string.IsNullOrWhiteSpace(_lastDesktopSettingsJson) ? "{}" : _lastDesktopSettingsJson).RootElement
                 };
-                try { _ = socket.Send(JsonSerializer.Serialize(responseObj)); } catch { }
+                try { SafeSend(socket, JsonSerializer.Serialize(responseObj)); } catch { }
             }
             // یک عملیات تکی و آنی (اضافه/حذف/دیسپنس یک بارکد) از یک سیستم هم‌شبکه رسیده - بدون
             // مقایسه‌ی نسخه (خودِ عملیات‌ها با شناسه اعمال می‌شوند، پس تکراری بودن بی‌ضرر است؛
@@ -454,7 +461,7 @@ public sealed class ScanBridgeService : IDisposable
                     versionUtcMs = _lastHighUsageSnapshotVersionUtcMs,
                     payload = JsonDocument.Parse(string.IsNullOrWhiteSpace(_lastHighUsageSnapshotJson) ? "[]" : _lastHighUsageSnapshotJson).RootElement
                 };
-                try { _ = socket.Send(JsonSerializer.Serialize(responseObj)); } catch { }
+                try { SafeSend(socket, JsonSerializer.Serialize(responseObj)); } catch { }
             }
         }
         catch { }
@@ -805,7 +812,11 @@ public sealed class ScanBridgeService : IDisposable
 
                     try
                     {
-                        _ = item.Socket.Send($"OK {barcode}");
+                        SafeSend(item.Socket, $"OK {barcode}", ok =>
+                        {
+                            if (!ok)
+                                Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to send ack for {barcode}.");
+                        });
                     }
                     catch (Exception ex)
                     {
@@ -825,10 +836,51 @@ public sealed class ScanBridgeService : IDisposable
         }
     }
 
+    /// <summary>
+    /// تمام Sendهای روی یک اتصال WebSocket (ack اسکن، پینگ سلامت، broadcastهای هشدار/ورود از
+    /// راه دور، پیام DISCONNECT) باید از همین متد رد شوند - نگاه کنید به توضیح بالای
+    /// _socketSendGates. هر Send واقعی داخل نوبت خودش (SemaphoreSlim مخصوص همان سوکت) اجرا
+    /// می‌شود، پس دیگر دو نوشتن روی یک اتصال هم‌زمان کامل نمی‌شوند. غیرهمزمان/fire-and-forget
+    /// است تا رفتار محل‌های فراخوانی قبلی (که همه `_ = socket.Send(...)` بودند) عوض نشود؛
+    /// onSettled اختیاری برای مواردی است که قبلاً به نتیجه‌ی Send نیاز داشتند (مثلاً پینگ سلامت
+    /// که روی شکست باید اتصال را ببندد).
+    /// </summary>
+    private void SafeSend(IWebSocketConnection socket, string payload, Action<bool>? onSettled = null)
+    {
+        var gate = _socketSendGates.GetOrAdd(socket, _ => new SemaphoreSlim(1, 1));
+        _ = Task.Run(async () =>
+        {
+            bool ok = false;
+            try
+            {
+                await gate.WaitAsync();
+                try
+                {
+                    await socket.Send(payload);
+                    ok = true;
+                }
+                finally
+                {
+                    // اگر درست همین بین اتصال بسته و RemoveTrackedSocket این gate را Dispose کرده
+                    // باشد، Release می‌تواند ObjectDisposedException بدهد - بی‌ضرر است، فقط نادیده گرفته شود.
+                    try { gate.Release(); } catch (ObjectDisposedException) { }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[{DateTime.UtcNow:O}] SafeSend failed: {ex.Message}");
+            }
+
+            onSettled?.Invoke(ok);
+        });
+    }
+
     private void RemoveTrackedSocket(IWebSocketConnection socket, bool abnormal)
     {
         bool removed = _connectedDevices.TryRemove(socket, out _);
         _erroredConnections.TryRemove(socket, out _);
+        if (_socketSendGates.TryRemove(socket, out var gate))
+            gate.Dispose();
 
         if (removed)
         {
@@ -856,9 +908,9 @@ public sealed class ScanBridgeService : IDisposable
             try
             {
                 // پیام سبک سلامت باعث می‌شود اتصال‌های مرده/گوشی خاموش‌شده زودتر توسط TCP/WebSocket مشخص شوند.
-                _ = socket.Send("{\"type\":\"SCANBRIDGE_PING\"}").ContinueWith(t =>
+                SafeSend(socket, "{\"type\":\"SCANBRIDGE_PING\"}", ok =>
                 {
-                    if (t.IsFaulted || t.IsCanceled)
+                    if (!ok)
                     {
                         try { socket.Close(); } catch { }
                         RemoveTrackedSocket(socket, abnormal: true);
@@ -917,7 +969,7 @@ public sealed class ScanBridgeService : IDisposable
 
                 try
                 {
-                    _ = socket.Send("DISCONNECT");
+                    SafeSend(socket, "DISCONNECT");
                 }
                 catch { }
 
@@ -983,7 +1035,7 @@ public sealed class ScanBridgeService : IDisposable
         {
             try
             {
-                _ = socket.Send(json);
+                SafeSend(socket, json);
             }
             catch (Exception ex)
             {
@@ -1015,7 +1067,7 @@ public sealed class ScanBridgeService : IDisposable
         string json = JsonSerializer.Serialize(payloadObj);
         foreach (var socket in _connectedDevices.Keys.ToArray())
         {
-            try { _ = socket.Send(json); }
+            try { SafeSend(socket, json); }
             catch (Exception ex) { Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to send remote-entry step to a device: {ex.Message}"); }
         }
     }
@@ -1030,7 +1082,7 @@ public sealed class ScanBridgeService : IDisposable
         string json = JsonSerializer.Serialize(payloadObj);
         foreach (var socket in _connectedDevices.Keys.ToArray())
         {
-            try { _ = socket.Send(json); }
+            try { SafeSend(socket, json); }
             catch (Exception ex) { Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to send remote-entry cancel to a device: {ex.Message}"); }
         }
     }

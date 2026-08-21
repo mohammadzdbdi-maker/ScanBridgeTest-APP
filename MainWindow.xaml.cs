@@ -97,7 +97,16 @@ nQIDAQAB
     private ExportTarget _pendingExportTarget = ExportTarget.Excel;
     private string _productDetailsCurrentBarcode = string.Empty;
     private string _historyLoadedPharmacyKey = "default";
-    private readonly Dictionary<string, DrugInfo> _ttTeckDetailsByBarcode = new();
+    // قبلاً Dictionary معمولی بود - وقتی دو گوشی تقریباً هم‌زمان اسکن می‌کردند، استعلام تی‌تک هر
+    // کدام (بعد از await روی HTTP) روی یک ترد pool مجزا ادامه پیدا می‌کرد و همزمان روی همین
+    // دیکشنری می‌نوشت؛ Dictionary معمولی برای نوشتن هم‌زمان از چند ترد thread-safe نیست (حتی با
+    // کلیدهای متفاوت) و می‌تواند خراب شود یا exception بدهد (باگ ۱۲ گزارش ممیزی).
+    // ConcurrentDictionary خواندن/نوشتن هم‌زمان را بدون قفل دستی ایمن می‌کند.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DrugInfo> _ttTeckDetailsByBarcode = new();
+    // فقط برای سریال‌سازی نوشتن فایل کش تی‌تک (SaveTtTeckDetailsCache) - خودِ دیکشنری با
+    // ConcurrentDictionary ایمن شده، ولی File.WriteAllText اگر از دو ترد هم‌زمان صدا زده شود
+    // می‌تواند فایل را خراب کند یا با خطای اشغال‌بودن فایل شکست بخورد.
+    private readonly object _ttTeckDetailsCacheFileLock = new();
     private readonly Dictionary<string, string> _deviceAliases = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ConnectedDeviceInfo> _lastConnectedDevices = new();
     private string _editingDeviceOriginalName = string.Empty;
@@ -9415,7 +9424,14 @@ nQIDAQAB
                 .ToList();
 
             string json = JsonSerializer.Serialize(items, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(path, json);
+
+            // قفل فقط دور خودِ نوشتن فایل - اگر دو اسکن هم‌زمان (از دو گوشی) هرکدام بخواهند کش را
+            // ذخیره کنند، بدون این قفل ممکن است هر دو هم‌زمان File.WriteAllText را صدا بزنند و
+            // فایل خراب/نصفه‌نوشته شود یا یکی با خطای اشغال‌بودن فایل شکست بخورد.
+            lock (_ttTeckDetailsCacheFileLock)
+            {
+                File.WriteAllText(path, json);
+            }
         }
         catch { }
     }
