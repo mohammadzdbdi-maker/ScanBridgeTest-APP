@@ -159,9 +159,16 @@ public sealed class ScanBridgeService : IDisposable
         _queueTask = Task.Factory.StartNew(() => ProcessQueue(_queueCts.Token), TaskCreationOptions.LongRunning);
 
         var listenUrl = $"ws://0.0.0.0:{Port}";
-        _server = new WebSocketServer(listenUrl);
-        _server.Start(socket =>
+        // عمداً روی یک متغیر محلی ساخته می‌شود، نه مستقیم روی _server: اگر بایند پورت زیر
+        // (server.Start پایین) شکست بخورد (مثلاً پورت از قبل توسط یک نمونه‌ی دیگر برنامه یا یک
+        // فرآیند نیمه‌بسته اشغال شده باشد)، نباید _server ست شود - وگرنه چک بالای همین متد
+        // (if (_server is not null) return;) هر تلاش بعدیِ Start() را برای همیشه بی‌صدا no-op
+        // می‌کند، حتی بعد از اینکه پورت آزاد شد (باگ ۱۹ گزارش ممیزی).
+        var server = new WebSocketServer(listenUrl);
+        try
         {
+            server.Start(socket =>
+            {
             socket.OnOpen = () =>
             {
                 lock (_connectionLock)
@@ -272,7 +279,22 @@ public sealed class ScanBridgeService : IDisposable
                     _keyboardQueue.Add((socket, barcode, deviceName));
                 }
             };
-        });
+            });
+        }
+        catch
+        {
+            // بایند پورت شکست خورد - هر چیزی که بالاتر از این نقطه استارت شده بود (تایمر IP
+            // شبکه، صف پردازش اسکن) هم متوقف/پاک شود تا وضعیت نیمه‌راه نماند و تلاش بعدیِ Start()
+            // بتواند از صفر و کامل انجام شود.
+            _lanIpWatchTimer.Stop();
+            try { _queueCts?.Cancel(); } catch { }
+            _queueCts?.Dispose();
+            _queueCts = null;
+            _queueTask = null;
+            throw;
+        }
+
+        _server = server;
 
         StartPeerSync();
 

@@ -7749,10 +7749,17 @@ nQIDAQAB
         if (!blurWasAlreadyActive)
             RootContentGrid.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 18 };
 
+        // این پاپ‌آپ غیرمودال است (win.Show نه ShowDialog) و ممکن است کاربر مدتی آن را باز نگه
+        // دارد؛ اگر قبل از پاسخ به آن (زدن «فروخته شد»/«باشه») داروخانه را عوض کند،
+        // GetReceiveStatusStorageKey() در لحظه‌ی کلیک دیگر همان داروخانه‌ای را برنمی‌گرداند که
+        // این هشدارها برایش ساخته شده - باید همین‌جا (قبل از باز شدن پنجره) ثبت شود (باگ ۱۵
+        // گزارش ممیزی).
+        string capturedPharmacyKeyForAlert = GetReceiveStatusStorageKey();
+
         bool english = _localization.CurrentLanguage == AppLanguage.English;
         var win = new ExpiryAlertWindow(due, english) { Owner = this };
-        win.ItemMarkedSold += MarkExpiryItemSold;
-        win.ItemAcknowledged += AcknowledgeExpiryItem;
+        win.ItemMarkedSold += barcode => MarkExpiryItemSold(barcode, capturedPharmacyKeyForAlert);
+        win.ItemAcknowledged += barcode => AcknowledgeExpiryItem(barcode, capturedPharmacyKeyForAlert);
         win.Closed += (_, _) =>
         {
             if (!blurWasAlreadyActive)
@@ -7761,11 +7768,16 @@ nQIDAQAB
         win.Show();
     }
 
-    private void MarkExpiryItemSold(string barcode)
+    // pharmacyKeyOverride: وقتی از دکمه‌ی داخل پنل «تاریخ نزدیک» زده می‌شود، null است و کلید
+    // داروخانه‌ی جاری استفاده می‌شود (رفتار قبلی، درست است چون آن پنل همیشه داروخانه‌ی جاری را
+    // نشان می‌دهد). وقتی از پاپ‌آپ غیرمودال زده می‌شود، ShowExpiryAlertPopup کلید داروخانه‌ای که
+    // پاپ‌آپ برایش باز شده را صراحتاً می‌فرستد، تا اگر کاربر بین باز شدن پاپ‌آپ و کلیک روی دکمه
+    // داروخانه را عوض کرده باشد، هنوز روی داروخانه‌ی درست اعمال شود.
+    private void MarkExpiryItemSold(string barcode, string? pharmacyKeyOverride = null)
     {
         try
         {
-            string pharmacyKey = GetReceiveStatusStorageKey();
+            string pharmacyKey = pharmacyKeyOverride ?? GetReceiveStatusStorageKey();
             var store = LoadExpiryWatchStore();
             if (store.TryGetValue(pharmacyKey, out var items))
             {
@@ -7785,11 +7797,11 @@ nQIDAQAB
         RefreshExpiryWatchDisplayList();
     }
 
-    private void AcknowledgeExpiryItem(string barcode)
+    private void AcknowledgeExpiryItem(string barcode, string? pharmacyKeyOverride = null)
     {
         try
         {
-            string pharmacyKey = GetReceiveStatusStorageKey();
+            string pharmacyKey = pharmacyKeyOverride ?? GetReceiveStatusStorageKey();
             var store = LoadExpiryWatchStore();
             if (store.TryGetValue(pharmacyKey, out var items))
             {
@@ -10546,7 +10558,16 @@ nQIDAQAB
             await OpenTtTeckInternalBrowserAsync("https://newstatisticsreports.ttac.ir/pharmacyDashboard");
             _ = MonitorTtacConnectionAfterBrowserOpenAsync();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // قبلاً این catch کاملاً خالی بود: تا اینجا همه‌ی داده‌ی داروخانه‌ی قبلی پاک شده
+            // (توکن، تاریخچه، وضعیت دریافت و ...) - اگر هر بخش پیش‌بینی‌نشده‌ای از این جریان
+            // خطا بدهد، کاربر با صفحه‌ای خالی می‌ماند و هیچ ردی برای پشتیبانی باقی نمی‌ماند
+            // (باگ ۱۶ گزارش ممیزی). باز کردن خودِ مرورگر (OpenTtTeckInternalBrowserAsync) از قبل
+            // خطای خودش را به کاربر نشان می‌دهد؛ این فقط برای هر خطای دیگر در همین جریان است -
+            // حداقل در گزارش تشخیصی ثبت شود تا قابل پیگیری باشد.
+            LogBackgroundHandlerError(ex, "StyledMessagePharmacySwitchButton_Click");
+        }
     }
 
     private async Task ReturnToTtacRegistrationFormAsync(string barcode, TtacRepeatFormulaContext context)

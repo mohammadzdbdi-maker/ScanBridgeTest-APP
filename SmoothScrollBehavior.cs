@@ -59,10 +59,33 @@ public static class SmoothScrollBehavior
             // اسکرول پیکسلی (نه آیتمی) - پیش‌نیاز انیمیشن نرم، حتی روی لیست‌های مجازی‌سازی‌شده.
             scrollViewer.CanContentScroll = false;
             scrollViewer.PreviewMouseWheel += OnPreviewMouseWheel;
+
+            // اگر این ScrollViewer (یا پنجره‌اش) در همان لحظه که تایمر انیمیشن در حال اجراست
+            // Unload شود، باید تایمر همین‌جا صریحاً متوقف شود - وگرنه DispatcherTimer.Tick
+            // خودش را روی scrollViewer نگه می‌دارد و مانع GC شدن آن (و پنجره‌اش) می‌شود، حتی بعد
+            // از بسته‌شدن پنجره (بخشی از باگ ۲۰ گزارش ممیزی).
+            scrollViewer.Unloaded += OnScrollViewerUnloaded;
         }
         else
         {
             scrollViewer.PreviewMouseWheel -= OnPreviewMouseWheel;
+            scrollViewer.Unloaded -= OnScrollViewerUnloaded;
+            StopTimer(scrollViewer);
+        }
+    }
+
+    private static void OnScrollViewerUnloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is ScrollViewer scrollViewer)
+            StopTimer(scrollViewer);
+    }
+
+    private static void StopTimer(ScrollViewer scrollViewer)
+    {
+        if (States.TryGetValue(scrollViewer, out var state))
+        {
+            state.Timer?.Stop();
+            state.Timer = null;
         }
     }
 
@@ -99,6 +122,14 @@ public static class SmoothScrollBehavior
 
     private static void AnimateStep(ScrollViewer scrollViewer, ScrollAnimationState state)
     {
+        // اگر لیست همین حین انیمیشن کوچک شود (مثلاً فیلتر شدن)، ScrollableHeight می‌تواند از
+        // TargetOffset قدیمی کمتر شود. ScrollToVerticalOffset مقدار واقعی اعمال‌شده را خودش
+        // clamp می‌کند، ولی TargetOffset ذخیره‌شده‌ی ما را نه - بدون این تصحیح، current هیچ‌وقت
+        // به TargetOffset نمی‌رسد، diff هیچ‌وقت به SnapThreshold نمی‌رسد، و این تایمر تا ابد
+        // (هر ۱۵ میلی‌ثانیه، برای همیشه) تیک می‌زند (باگ ۲۰ گزارش ممیزی).
+        if (state.TargetOffset > scrollViewer.ScrollableHeight)
+            state.TargetOffset = Math.Max(0, scrollViewer.ScrollableHeight);
+
         double current = scrollViewer.VerticalOffset;
         double diff = state.TargetOffset - current;
 

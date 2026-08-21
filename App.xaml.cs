@@ -147,6 +147,14 @@ public partial class App : System.Windows.Application
 
             LogStartupError(ex, "OnStartup");
             MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+
+            // ShutdownMode بالای این متد روی OnExplicitShutdown تنظیم شده (چون برنامه معمولاً
+            // فقط با آیکون تری، بدون هیچ پنجره‌ی قابل‌مشاهده، اجرا می‌شود). یعنی اگر همین‌جا
+            // ساخت سرویس/پنجره‌ی اصلی/آیکون تری شکست بخورد، WPF خودش تصمیم به بستن برنامه
+            // نمی‌گیرد - فرآیند بدون هیچ پنجره یا آیکون تری، کاملاً نامرئی، تا ابد زنده می‌ماند
+            // (فقط از Task Manager قابل بستن است؛ باگ ۱۸ گزارش ممیزی). چون تا اینجا رسیدن یعنی
+            // راه‌اندازی قطعاً شکست خورده، باید صریحاً بسته شود.
+            Shutdown(1);
         }
     }
 
