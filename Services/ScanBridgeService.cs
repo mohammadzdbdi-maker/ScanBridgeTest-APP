@@ -185,32 +185,26 @@ public sealed class ScanBridgeService : IDisposable
                 if (_connectedDevices.TryGetValue(socket, out var heartbeatState))
                     heartbeatState.LastSeenUtc = DateTime.UtcNow;
 
+                // قبلاً این بخش یک try/catch واحد داشت: هر استثنایی - چه «اصلاً JSON نیست» (فرمت
+                // متن‌سادهٔ قدیمی‌تر که هنوز پشتیبانی می‌شود) چه «JSON هست ولی یک فیلدش نوع
+                // اشتباه دارد» (مثلاً barcode به‌جای رشته، عدد فرستاده شود - از یک نسخه‌ی متفاوت
+                // اپ گوشی) - به یک نتیجه می‌رسید: کل متن خام پیام (شامل آکولاد/کوتیشن‌های JSON) به
+                // barcode می‌رفت و همان‌طور تایپ می‌شد. حالا این دو حالت را از هم جدا می‌کنیم: فقط
+                // وقتی واقعاً JSON نیست به فرمت متن‌ساده برمی‌گردیم؛ اگر JSON معتبر بود ولی یک فیلد
+                // نوعش اشتباه بود، فقط همان یک فیلد نادیده گرفته می‌شود (خالی می‌ماند - که پایین‌تر
+                // با IsNullOrWhiteSpace(barcode) هم‌اکنون به‌درستی نادیده گرفته می‌شود)، نه کل پیام.
                 try
                 {
                     using var doc = System.Text.Json.JsonDocument.Parse(message);
-                    if (doc.RootElement.TryGetProperty("deviceName", out var nameProp))
-                    {
-                        deviceName = nameProp.GetString() ?? "";
-                    }
-                    if (doc.RootElement.TryGetProperty("barcode", out var barcodeProp))
-                    {
-                        barcode = barcodeProp.GetString() ?? "";
-                    }
-                    if (doc.RootElement.TryGetProperty("type", out var typeProp))
-                    {
-                        messageType = typeProp.GetString() ?? "";
-                    }
-                    if (doc.RootElement.TryGetProperty("stepId", out var stepIdProp))
-                    {
-                        remoteEntryStepId = stepIdProp.GetString() ?? "";
-                    }
-                    if (doc.RootElement.TryGetProperty("value", out var valueProp))
-                    {
-                        remoteEntryValue = valueProp.GetString() ?? "";
-                    }
+                    deviceName = GetJsonMessageString(doc.RootElement, "deviceName");
+                    barcode = GetJsonMessageString(doc.RootElement, "barcode");
+                    messageType = GetJsonMessageString(doc.RootElement, "type");
+                    remoteEntryStepId = GetJsonMessageString(doc.RootElement, "stepId");
+                    remoteEntryValue = GetJsonMessageString(doc.RootElement, "value");
                 }
-                catch
+                catch (System.Text.Json.JsonException)
                 {
+                    // این پیام اصلاً JSON نیست (فرمت قدیمی‌تر: خودِ متن پیام همان بارکد است).
                     barcode = message?.Trim() ?? string.Empty;
                 }
 
@@ -271,6 +265,18 @@ public sealed class ScanBridgeService : IDisposable
         _pruneTimer.Start();
         _connectionHealthTimer.Start();
         PruneOldScans();
+    }
+
+    // JsonElement.GetString() خودش exception می‌دهد اگر فیلد موجود باشد ولی نوعش رشته/null نباشد
+    // (مثلاً یک نسخه‌ی دیگر اپ گوشی barcode را به‌جای رشته، عدد بفرستد). این helper چنین حالتی را
+    // exception نمی‌دهد - فقط همان یک فیلد را نادیده می‌گیرد (رشته‌ی خالی برمی‌گرداند) تا خطای یک
+    // فیلد باعث نشود کل پیامِ JSON خام به‌جای بارکد استفاده شود.
+    private static string GetJsonMessageString(System.Text.Json.JsonElement root, string propertyName)
+    {
+        if (!root.TryGetProperty(propertyName, out var prop))
+            return string.Empty;
+
+        return prop.ValueKind == System.Text.Json.JsonValueKind.String ? (prop.GetString() ?? string.Empty) : string.Empty;
     }
 
     // =========================================================================================

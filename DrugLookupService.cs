@@ -13,6 +13,7 @@ public class DrugLookupService
 {
     private static HttpClient? _httpClient;
     private static CookieContainer? _cookieContainer;
+    private static readonly object _httpClientInitLock = new();
 
     // صفحه‌ای که کاربر در سایت تی‌تک می‌بیند:
     private const string MOBILE_ENTER_UID_URL = "https://mobile.ttac.ir/enterUID";
@@ -28,45 +29,69 @@ public class DrugLookupService
     {
     }
 
-    private void InitializeHttpClient()
+    // قبلاً این متد در هر GetDrugNameAsync از نو صدا زده می‌شد و هر بار یک HttpClient/CookieContainer
+    // کاملاً تازه می‌ساخت و روی فیلدهای static می‌نشاند - بدون هیچ قفلی. چون این سرویس هم‌زمان از
+    // چند گوشی متصل روی LAN صدا زده می‌شود (نگاه کنید به ScanBridgeService)، وقتی دو اسکن تقریباً
+    // هم‌زمان می‌رسیدند، یک ترد می‌توانست دقیقاً وسط DefaultRequestHeaders.Clear()/Add() ترد دیگر
+    // باشد، یا با HttpClient نیمه‌مقداردهی‌شده‌ی ترد دیگر درخواست بزند - نتیجه یک بارکد کاملاً
+    // معتبر که به‌صورت غیرقابل‌بازتولید، فقط زیر بار هم‌زمان، «یافت نشد»/۴۰۱ برمی‌گشت. همچنین هر
+    // HttpClientHandler قبلی هیچ‌وقت Dispose نمی‌شد - نشتی سوکت/handle زیر اسکن مداوم. حالا فقط
+    // یک‌بار (با قفل، در برابر race بین دو ترد که هم‌زمان برای اولین بار وارد این متد می‌شوند) ساخته
+    // می‌شود و برای همه‌ی درخواست‌های بعدی (از هر تردی) دوباره استفاده می‌شود - همان الگوی
+    // استاندارد و توصیه‌شده‌ی HttpClient در دات‌نت.
+    private static void InitializeHttpClient()
     {
-        _cookieContainer = new CookieContainer();
-        // توجه امنیتی: قبلاً اینجا ServerCertificateCustomValidationCallback همیشه true برمی‌گرداند
-        // - یعنی هر گواهی SSL (جعلی/منقضی/MITM) برای همه‌ی درخواست‌های تی‌تک پذیرفته می‌شد، از جمله
-        // درخواست‌هایی که توکن ورود کاربر را در هدر Authorization حمل می‌کنند. حذف شد تا اعتبارسنجی
-        // استاندارد و واقعی .NET (زنجیره‌ی گواهی معتبر) دوباره اعمال شود.
-        var handler = new HttpClientHandler
-        {
-            CookieContainer = _cookieContainer,
-            AllowAutoRedirect = true,
-            UseCookies = true,
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
-        };
+        if (_httpClient != null)
+            return;
 
-        _httpClient = new HttpClient(handler)
+        lock (_httpClientInitLock)
         {
-            Timeout = TimeSpan.FromSeconds(30)
-        };
+            if (_httpClient != null)
+                return;
 
-        SetDefaultHeaders();
+            var cookieContainer = new CookieContainer();
+            // توجه امنیتی: قبلاً اینجا ServerCertificateCustomValidationCallback همیشه true
+            // برمی‌گرداند - یعنی هر گواهی SSL (جعلی/منقضی/MITM) برای همه‌ی درخواست‌های تی‌تک
+            // پذیرفته می‌شد، از جمله درخواست‌هایی که توکن ورود کاربر را در هدر Authorization حمل
+            // می‌کنند. حذف شد تا اعتبارسنجی استاندارد و واقعی .NET (زنجیره‌ی گواهی معتبر) دوباره
+            // اعمال شود.
+            var handler = new HttpClientHandler
+            {
+                CookieContainer = cookieContainer,
+                AllowAutoRedirect = true,
+                UseCookies = true,
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+            };
+
+            var client = new HttpClient(handler)
+            {
+                Timeout = TimeSpan.FromSeconds(30)
+            };
+
+            SetDefaultHeaders(client);
+
+            // فقط بعد از کامل‌شدن مقداردهی، به فیلدهای static نسبت داده می‌شود - تا تردی که چک
+            // «_httpClient != null» بالا را رد می‌کند، همیشه یک کلاینت کاملاً آماده ببیند، نه
+            // نیمه‌ساخته.
+            _cookieContainer = cookieContainer;
+            _httpClient = client;
+        }
     }
 
-    private void SetDefaultHeaders()
+    private static void SetDefaultHeaders(HttpClient client)
     {
-        if (_httpClient == null) return;
-
-        _httpClient.DefaultRequestHeaders.Clear();
-        _httpClient.DefaultRequestHeaders.Add("User-Agent",
+        client.DefaultRequestHeaders.Clear();
+        client.DefaultRequestHeaders.Add("User-Agent",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36");
-        _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
-        _httpClient.DefaultRequestHeaders.Add("Accept-Language", "fa-IR,fa;q=0.9");
-        _httpClient.DefaultRequestHeaders.Add("Accept-Encoding", "gzip, deflate, br");
-        _httpClient.DefaultRequestHeaders.Add("Origin", "https://mobile.ttac.ir");
-        _httpClient.DefaultRequestHeaders.Add("Referer", MOBILE_ENTER_UID_URL);
-        _httpClient.DefaultRequestHeaders.Add("x-ssp-api-key", API_KEY);
-        _httpClient.DefaultRequestHeaders.Add("Sec-Fetch-Dest", "empty");
-        _httpClient.DefaultRequestHeaders.Add("Sec-Fetch-Mode", "cors");
-        _httpClient.DefaultRequestHeaders.Add("Sec-Fetch-Site", "same-site");
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+        client.DefaultRequestHeaders.Add("Accept-Language", "fa-IR,fa;q=0.9");
+        client.DefaultRequestHeaders.Add("Accept-Encoding", "gzip, deflate, br");
+        client.DefaultRequestHeaders.Add("Origin", "https://mobile.ttac.ir");
+        client.DefaultRequestHeaders.Add("Referer", MOBILE_ENTER_UID_URL);
+        client.DefaultRequestHeaders.Add("x-ssp-api-key", API_KEY);
+        client.DefaultRequestHeaders.Add("Sec-Fetch-Dest", "empty");
+        client.DefaultRequestHeaders.Add("Sec-Fetch-Mode", "cors");
+        client.DefaultRequestHeaders.Add("Sec-Fetch-Site", "same-site");
     }
 
     /// <summary>

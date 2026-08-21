@@ -10340,7 +10340,18 @@ nQIDAQAB
             }
             catch
             {
-                ShowProductNotInCurrentPharmacyLogoutMessage();
+                // The row was already confirmed to belong to the current pharmacy above
+                // (row != null). An exception here means the confirmation call itself failed
+                // (network timeout, transient TTAC server error, etc.) - it does NOT mean the
+                // product belongs to a different pharmacy, so we must not show the wrong-pharmacy
+                // / logout message here. Show a generic retry message instead.
+                bool english = _localization.CurrentLanguage == AppLanguage.English;
+                ShowStyledMessage(
+                    english ? "Confirmation Failed" : "تایید انجام نشد",
+                    english
+                        ? "The receipt confirmation could not be completed due to a connection error. Please try again."
+                        : "تایید دریافت به دلیل خطای ارتباطی انجام نشد. لطفاً دوباره تلاش کنید.",
+                    true);
                 return;
             }
         }
@@ -13539,10 +13550,24 @@ private void SaveTtTeckSettings()
 
             if (!response.IsSuccessStatusCode)
             {
-                _activeLicense = ScanbridgeLicense.Missing();
-                _activeLicenseCode = string.Empty;
-                ApplyLicenseToUi();
-                Dispatcher.BeginInvoke(new Action(ShowLicenseOverlayStrict));
+                // فقط کدهای HTTP که یعنی سرور صراحتاً این لایسنس را رد/باطل کرده (نه یک خطای
+                // موقت شبکه/سرور) باعث خروج فوری کاربر شوند. کدهای دیگر (500/502/503/504/429 و...)
+                // یعنی سرور یا شبکه موقتاً در دسترس نیست - نباید لایسنس معتبرِ کش‌شده را باطل کند،
+                // وگرنه یک خطای موقت سرور می‌تواند مشتریانی که پول داده‌اند را قفل کند.
+                bool isDefiniteRejection = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                    || response.StatusCode == System.Net.HttpStatusCode.Forbidden
+                    || response.StatusCode == System.Net.HttpStatusCode.NotFound
+                    || response.StatusCode == System.Net.HttpStatusCode.Gone;
+
+                if (isDefiniteRejection)
+                {
+                    _activeLicense = ScanbridgeLicense.Missing();
+                    _activeLicenseCode = string.Empty;
+                    ApplyLicenseToUi();
+                    Dispatcher.BeginInvoke(new Action(ShowLicenseOverlayStrict));
+                }
+                // در غیر این صورت (خطای موقت سرور/شبکه): لایسنس کش‌شده دست‌نخورده باقی می‌ماند و
+                // دفعه‌ی بعدِ heartbeat (۶ ساعت دیگر) دوباره تلاش می‌شود.
                 return;
             }
 
