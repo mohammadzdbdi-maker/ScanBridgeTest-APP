@@ -104,6 +104,12 @@ public partial class MainWindow
     private HighUsageBarcodePickerWindow? _highUsagePickerWindow;
     private string? _highUsageCaptureSubgroupId;
     private IntPtr _highUsageCapturedForegroundWindow = IntPtr.Zero;
+    // اگر خواندن high-usage-barcodes.dat شکست بخورد (مثلاً فایل موقتاً توسط آنتی‌ویروس قفل شده،
+    // یا خطای دیسک)، این true می‌شود. قبلاً در این حالت _highUsageGroups بی‌صدا خالی می‌شد و اولین
+    // ذخیره‌ی بعدی (حتی یک تغییر محلی کوچک، یا یک عملیات LAN که از سیستم دیگری می‌رسد) همان بانکِ
+    // خالی را جای فایل واقعی روی دیسک می‌نوشت - یعنی ماه‌ها داده بی‌هیچ هشداری از بین می‌رفت. حالا
+    // تا وقتی این true است، SaveHighUsageBarcodeGroups عمداً چیزی روی دیسک نمی‌نویسد.
+    private bool _highUsageBankLoadFailed;
 
     private string GetHighUsageBarcodeDataPath() => Path.Combine(AppContext.BaseDirectory, "high-usage-barcodes.dat");
     private string GetHighUsageBarcodeSettingsPath() => Path.Combine(AppContext.BaseDirectory, "high-usage-barcode-settings.dat");
@@ -112,6 +118,22 @@ public partial class MainWindow
     {
         LoadHighUsageBarcodeSettings();
         LoadHighUsageBarcodeGroups();
+
+        if (_highUsageBankLoadFailed)
+        {
+            // به کاربر می‌گوییم که بانک بارگذاری نشد - تا فکر نکند بانکش واقعاً خالی شده و شروع
+            // نکند از نو گروه‌ها را دستی بسازد (که خودش می‌تواند باعث تداخل عجیب با فایل واقعی
+            // بشود). فایل واقعی دست‌نخورده مانده؛ فقط باید برنامه دوباره باز شود.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                ShowStyledMessage(
+                    _localization.CurrentLanguage == AppLanguage.English ? "High-usage barcode bank" : "بانک بارکد پرمصرف",
+                    _localization.CurrentLanguage == AppLanguage.English
+                        ? "The high-usage barcode bank could not be loaded right now (the file may be temporarily locked by another program). Your saved groups were NOT deleted - please close and reopen Scanbridge. Do not re-create your groups from scratch."
+                        : "بانک بارکد پرمصرف الان بارگذاری نشد (ممکن است فایلش موقتاً توسط برنامه‌ی دیگری قفل باشد). گروه‌های ذخیره‌شده‌ی شما پاک نشده‌اند - لطفاً اسکن‌بریج را ببندید و دوباره باز کنید. از نو گروه‌ها را دستی نسازید.",
+                    true);
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        }
 
         try
         {
@@ -180,11 +202,25 @@ public partial class MainWindow
                 }
             }
         }
-        catch { _highUsageGroups = new List<HighUsageBarcodeGroup>(); }
+        catch
+        {
+            // عمداً _highUsageGroups را خالی نمی‌کنیم - فایل واقعی روی دیسک دست‌نخورده می‌ماند؛ فقط
+            // این نشست فعلی موقتاً بانک را نمی‌بیند. SaveHighUsageBarcodeGroups زیر، تا وقتی همین
+            // پرچم true است، از رونویسی فایل واقعی با یک بانکِ (احتمالاً) ناقص در حافظه جلوگیری
+            // می‌کند.
+            _highUsageBankLoadFailed = true;
+        }
     }
 
     private void SaveHighUsageBarcodeGroups()
     {
+        if (_highUsageBankLoadFailed)
+        {
+            // بانک واقعی روی دیسک هیچ‌وقت با موفقیت خوانده نشد، پس آنچه الان در حافظه است
+            // (خالی یا ناقص) قابل‌اعتماد نیست - رویش ننویس، وگرنه داده‌ی واقعی از بین می‌رود.
+            return;
+        }
+
         try
         {
             var wrapper = new HighUsageBarcodeBankFile { VersionUtcMs = _highUsageBankVersionUtcMs, Groups = _highUsageGroups };
