@@ -8007,15 +8007,34 @@ nQIDAQAB
     /// false برمی‌گرداند و داده‌ی فعلی پاک نمی‌شود - قبلاً این متد صرف‌نظر از موفقیت
     /// CopyIfExists، بدون قید و شرط داده‌ی جاری را پاک می‌کرد (باگ ۵ گزارش).
     /// </summary>
+    /// <summary>ماه قبل از monthKey (فرمت "yyyy-MM") را برمی‌گرداند؛ اگر پارس نشد خودِ monthKey را.</summary>
+    private static string GetPredecessorMonthKey(string monthKey)
+    {
+        if (DateTime.TryParseExact(monthKey + "-01", "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+            return dt.AddMonths(-1).ToString("yyyy-MM", CultureInfo.InvariantCulture);
+        return monthKey;
+    }
+
     private async Task<bool> CreateMonthlyArchiveForCurrentPharmacyAsync(string pharmacyKey, string archiveMonth, string currentMonth)
     {
         await Task.Yield();
         string persianMonth = GetCurrentArchivePersianMonthKey();
-        string archiveRoot = Path.Combine(AppContext.BaseDirectory, "Archive", pharmacyKey, string.IsNullOrWhiteSpace(archiveMonth) ? GetCurrentArchiveMonthKey() : archiveMonth);
+        string safeArchiveMonth = string.IsNullOrWhiteSpace(archiveMonth) ? GetCurrentArchiveMonthKey() : archiveMonth;
+
+        // اگر کاربر چندبار پشت‌سرهم «خیر» زده باشد، داده‌ی این آرشیو ممکن است چند ماه را با هم
+        // پوشش بدهد (نه فقط safeArchiveMonth) - چون خودِ داده هرگز بین این ماه‌ها پاک نشده است.
+        // قبلاً پوشه/فایل فقط با نام اولین ماه (safeArchiveMonth) ساخته می‌شد که گمراه‌کننده بود
+        // (باگ ۸ گزارش)؛ الان اگر بازه بیش از یک ماه باشد، هر دو سر بازه در نام می‌آید.
+        string coverageEndMonth = GetPredecessorMonthKey(currentMonth);
+        string archiveLabel = string.Equals(safeArchiveMonth, coverageEndMonth, StringComparison.OrdinalIgnoreCase)
+            ? safeArchiveMonth
+            : $"{safeArchiveMonth}_to_{coverageEndMonth}";
+
+        string archiveRoot = Path.Combine(AppContext.BaseDirectory, "Archive", pharmacyKey, archiveLabel);
         string rawDir = Path.Combine(archiveRoot, "Data");
         Directory.CreateDirectory(rawDir);
 
-        string excelPath = Path.Combine(archiveRoot, $"Scanbridge_Archive_{pharmacyKey}_{persianMonth}_{(string.IsNullOrWhiteSpace(archiveMonth) ? GetCurrentArchiveMonthKey() : archiveMonth)}.xlsx");
+        string excelPath = Path.Combine(archiveRoot, $"Scanbridge_Archive_{pharmacyKey}_{persianMonth}_{archiveLabel}.xlsx");
         try
         {
             using (var workbook = new XLWorkbook())
@@ -9900,7 +9919,10 @@ nQIDAQAB
             int rowNumber = 2;
             int itemNumber = 1;
 
-            foreach (var item in HistoryItems)
+            // قبلاً اینجا روی کل HistoryItems حلقه می‌زد و فیلتر تاریخ/جست‌وجوی فعال روی صفحه
+            // (که خروجی PDF از GetFilteredHistoryRecords رعایت می‌کند) را نادیده می‌گرفت - کاربر
+            // فیلتر می‌زد، تعداد کمی رکورد روی صفحه می‌دید، ولی اکسل کل تاریخچه را می‌گرفت.
+            foreach (var item in GetFilteredHistoryRecords())
             {
                 if (_isExportingOnlyTtTeck && item.Source != BarcodeSource.TtTeck)
                     continue;
@@ -12973,20 +12995,12 @@ private void SaveTtTeckSettings()
         // فرمت جدید: timestamp,deviceName,barcode,drugName - چون هر فیلد به‌درستی escape شده
         // (EscapeCsvLocal)، دقیقاً ۴ ستون خواهیم داشت و نیازی به join کردن نیست. این‌طوری
         // کاما داخل نام دارو باعث به‌هم‌ریختن ستون بارکد/نام دستگاه نمی‌شود.
+        // موقعیت ستون‌ها اینجا قطعی است (چون نوشتن همیشه با EscapeCsvLocal و به همین ترتیب انجام
+        // می‌شود)، پس دیگر نباید heuristic حدسی (IsLikelyScannedCode) این دو ستون را جابه‌جا کند -
+        // همان heuristic باعث می‌شد وقتی نام دستگاه کاملاً عددی (مثلاً شماره‌تلفن به‌عنوان اسم گوشی)
+        // یا بارکد کوتاه/غیرعددی بود، بارکد و نام دستگاه در بارگذاری مجدد جابه‌جا نمایش داده شوند.
         if (parts.Count == 4)
-        {
-            string first4 = parts[1];
-            string second4 = parts[2];
-            string drugName4 = parts[3];
-
-            bool firstLooksBarcode4 = IsLikelyScannedCode(first4);
-            bool secondLooksBarcode4 = IsLikelyScannedCode(second4);
-
-            if (!firstLooksBarcode4 && secondLooksBarcode4)
-                return (second4, first4, drugName4);
-
-            return (first4, second4, drugName4);
-        }
+            return (parts[2], parts[1], parts[3]);
 
         // فرمت قدیمی (فایل‌های ساخته‌شده با نسخه‌های قبلی برنامه): اگر نام دستگاه شامل
         // کامای escape‌نشده بود، ممکن بود بیش از ۳ ستون ایجاد شود؛ رفتار قبلی (join) حفظ می‌شود

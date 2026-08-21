@@ -62,6 +62,12 @@ public sealed class ScanBridgeService : IDisposable
     private readonly ConcurrentDictionary<IWebSocketConnection, bool> _erroredConnections = new();
     private readonly ConcurrentDictionary<IWebSocketConnection, DeviceState> _connectedDevices = new();
     private readonly ConcurrentDictionary<string, DateTime> _manuallyBlockedDevices = new(StringComparer.OrdinalIgnoreCase);
+    // یک دستگاه بلاک‌شده می‌تواند با اتصال مجدد و فرستادن بارکد به‌صورت متن‌ساده (پروتکل قدیمی،
+    // بدون فیلد deviceName در JSON) بلاک روی نام را دور بزند - چون تشخیص بلاک فقط با deviceName
+    // پیام فعلی مقایسه می‌شود که در این حالت همیشه خالی است (باگ ۱۱ گزارش ممیزی). به‌عنوان یک
+    // لایه‌ی دفاعی مستقل از deviceName، IP اتصال هم هنگام بلاک‌کردن ذخیره می‌شود.
+    private readonly ConcurrentDictionary<string, DateTime> _manuallyBlockedIps = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, List<string>> _blockedDeviceNameToIps = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, PeerInfo> _knownPeers = new(StringComparer.OrdinalIgnoreCase);
     private WebSocketServer? _server;
     private WebSocketServer? _peerServer;
@@ -230,7 +236,8 @@ public sealed class ScanBridgeService : IDisposable
                     return;
                 }
 
-                if (IsDeviceManuallyBlocked(deviceName))
+                string clientIp = socket.ConnectionInfo?.ClientIpAddress ?? string.Empty;
+                if (IsDeviceManuallyBlocked(deviceName) || IsIpManuallyBlocked(clientIp))
                 {
                     try
                     {
@@ -879,7 +886,8 @@ public sealed class ScanBridgeService : IDisposable
             return false;
 
         // جلوگیری از اتصال مجدد خودکار اپ گوشی برای چند دقیقه بعد از قطع دستی
-        _manuallyBlockedDevices[deviceName] = DateTime.UtcNow.AddMinutes(10);
+        var blockedUntilUtc = DateTime.UtcNow.AddMinutes(10);
+        _manuallyBlockedDevices[deviceName] = blockedUntilUtc;
 
         var sockets = _connectedDevices
             .Where(pair => string.Equals(pair.Value.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase))
@@ -890,12 +898,22 @@ public sealed class ScanBridgeService : IDisposable
             return false;
 
         bool disconnected = false;
+        var blockedIps = new List<string>();
         foreach (var socket in sockets)
         {
             try
             {
                 // این قطع اتصال توسط کاربر است، پس نباید هشدار قطع غیرمنتظره نشان داده شود.
                 _erroredConnections.TryRemove(socket, out _);
+
+                // IP اتصال هم بلاک می‌شود، مستقل از deviceName - نگاه کنید به توضیح بالای
+                // _manuallyBlockedIps.
+                string ip = socket.ConnectionInfo?.ClientIpAddress ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(ip))
+                {
+                    _manuallyBlockedIps[ip] = blockedUntilUtc;
+                    blockedIps.Add(ip);
+                }
 
                 try
                 {
@@ -912,12 +930,17 @@ public sealed class ScanBridgeService : IDisposable
             }
         }
 
+        if (blockedIps.Count > 0)
+            _blockedDeviceNameToIps[deviceName] = blockedIps;
+
         return disconnected;
     }
 
     public void AllowAllDevicesToReconnect()
     {
         _manuallyBlockedDevices.Clear();
+        _manuallyBlockedIps.Clear();
+        _blockedDeviceNameToIps.Clear();
     }
 
     /// <summary>
@@ -1017,7 +1040,14 @@ public sealed class ScanBridgeService : IDisposable
         if (string.IsNullOrWhiteSpace(deviceName))
             return false;
 
-        return _manuallyBlockedDevices.TryRemove(deviceName, out _);
+        bool removedName = _manuallyBlockedDevices.TryRemove(deviceName, out _);
+        if (_blockedDeviceNameToIps.TryRemove(deviceName, out var ips))
+        {
+            foreach (var ip in ips)
+                _manuallyBlockedIps.TryRemove(ip, out _);
+        }
+
+        return removedName;
     }
 
     public void Dispose()
@@ -1308,6 +1338,21 @@ public sealed class ScanBridgeService : IDisposable
             return true;
 
         _manuallyBlockedDevices.TryRemove(deviceName, out _);
+        return false;
+    }
+
+    private bool IsIpManuallyBlocked(string ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip))
+            return false;
+
+        if (!_manuallyBlockedIps.TryGetValue(ip, out var blockedUntilUtc))
+            return false;
+
+        if (DateTime.UtcNow <= blockedUntilUtc)
+            return true;
+
+        _manuallyBlockedIps.TryRemove(ip, out _);
         return false;
     }
 
