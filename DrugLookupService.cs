@@ -31,12 +31,15 @@ public class DrugLookupService
     private void InitializeHttpClient()
     {
         _cookieContainer = new CookieContainer();
+        // توجه امنیتی: قبلاً اینجا ServerCertificateCustomValidationCallback همیشه true برمی‌گرداند
+        // - یعنی هر گواهی SSL (جعلی/منقضی/MITM) برای همه‌ی درخواست‌های تی‌تک پذیرفته می‌شد، از جمله
+        // درخواست‌هایی که توکن ورود کاربر را در هدر Authorization حمل می‌کنند. حذف شد تا اعتبارسنجی
+        // استاندارد و واقعی .NET (زنجیره‌ی گواهی معتبر) دوباره اعمال شود.
         var handler = new HttpClientHandler
         {
             CookieContainer = _cookieContainer,
             AllowAutoRedirect = true,
             UseCookies = true,
-            ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
         };
 

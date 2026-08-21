@@ -859,17 +859,12 @@
                         <Button x:Name="LicenseExportFileButton" Content="خروجی شناسه" Visibility="Collapsed" Click="LicenseExportFileButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#F59E0B" Width="130" Height="42" Margin="6,0" />
                         <Button x:Name="CloseLicenseOverlayButton" Content="بستن" Click="CloseLicenseOverlay_Click" Style="{StaticResource RoundedButtonStyle}" Background="#9CA3AF" Width="100" Height="42" Margin="6,0" />
                     </StackPanel>
-                    <Border Background="#FEF3C7" BorderBrush="#F59E0B" BorderThickness="1" CornerRadius="14" Padding="10" Margin="0,4,0,0" Visibility="Collapsed">
-                        <StackPanel>
-                            <TextBlock Text="دکمه‌های تست موقت - قبل از فروش حذف/مخفی شوند" FontSize="12" Foreground="#92400E" TextAlignment="Center" Margin="0,0,0,8" />
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <Button x:Name="LicenseDemoTrialButton" Content="Trial" Click="LicenseDemoTrialButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#6B7280" Width="90" Height="36" Margin="4,0" />
-                                <Button x:Name="LicenseDemoStandardButton" Content="عادی" Click="LicenseDemoStandardButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#0EA5E9" Width="90" Height="36" Margin="4,0" />
-                                <Button x:Name="LicenseDemoProButton" Content="تی‌تک" Click="LicenseDemoProButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#7C3AED" Width="90" Height="36" Margin="4,0" />
-                                <Button x:Name="LicenseDemoExpiredButton" Content="تی‌تک پلاس" Click="LicenseDemoExpiredButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#10B981" Width="110" Height="36" Margin="4,0" />
-                            </StackPanel>
-                        </StackPanel>
-                    </Border>
+                    <!-- دکمه‌های تست موقتِ لایسنس دمو (Trial/عادی/تی‌تک/تی‌تک‌پلاس) از اینجا حذف شدند -
+                         طبق ممیزی امنیتی، این دکمه‌ها (حتی با اینکه Visibility="Collapsed" بودند و از
+                         داخل UI واقعی قابل کلیک نبودند) یک لایسنس واقعی و کاملاً معتبر با امضای
+                         HMAC قدیمی (SCB1) می‌ساختند. مسیر پذیرش SCB1 هم در TryReadLicenseCode
+                         غیرفعال شد (نگاه کنید به یادداشت همان‌جا) - پس این دکمه‌ها دیگر حتی در صورت
+                         فعال‌شدن دوباره‌ی Visibility هم کار نمی‌کردند، ولی برای پاک‌سازی کامل حذف شدند. -->
                 </StackPanel>
             </Border>
         </Grid>

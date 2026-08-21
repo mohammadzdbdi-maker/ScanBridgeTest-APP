@@ -13324,8 +13324,21 @@ private void SaveTtTeckSettings()
             if (parts[0].Equals(ServerLicenseCodePrefix, StringComparison.OrdinalIgnoreCase))
                 return TryReadServerSignedLicense(parts, out license, out error);
 
+            // فرمت قدیمی SCB1 دیگر پذیرفته نمی‌شود - طبق ممیزی امنیتی، این فرمت با یک رمز HMAC
+            // که به‌صورت ثابت داخل خودِ فایل exe نوشته شده بود (LicenseHmacSecret) هم امضا و هم
+            // تایید می‌شد؛ یعنی هرکس آن رشته را از فایل اجرایی استخراج می‌کرد (با یک decompiler
+            // معمولی) می‌توانست خودش یک کد لایسنس کاملاً معتبر با هر پلن/تاریخ انقضایی بسازد،
+            // بدون هیچ تماسی با سرور. لایسنس فروش واقعی همیشه فرمت SCB2 با امضای RSA سرور است
+            // (TryReadServerSignedLicense) که این مشکل را ندارد. اگر یک کد SCB1 واقعی و قدیمی
+            // جایی دست کسی مانده، دیگر پذیرفته نمی‌شود و باید یک کد SCB2 جدید از پشتیبانی گرفته
+            // شود.
             if (parts[0].Equals(LegacyLicenseCodePrefix, StringComparison.OrdinalIgnoreCase))
-                return TryReadLegacyHmacLicense(parts, out license, out error);
+            {
+                error = _localization.CurrentLanguage == AppLanguage.English
+                    ? "This activation code format is no longer supported. Please request a new activation code from support."
+                    : "این فرمت کد فعال‌سازی دیگر پشتیبانی نمی‌شود. لطفاً یک کد فعال‌سازی جدید از پشتیبانی درخواست کنید.";
+                return false;
+            }
 
             error = _localization.GetString("LicenseCodeFormatIsInvalid");
             return false;
@@ -13639,14 +13652,10 @@ private void SaveTtTeckSettings()
         }
     }
 
-    private ScanbridgeLicense CreateDemoLicense(string plan)
-    {
-        string systemId = _service?.ComputerId ?? Environment.MachineName;
-        var license = ScanbridgeLicense.ForPlan(plan, systemId, plan == "Trial" ? DateTime.Now.AddDays(14) : DateTime.Now.AddYears(1));
-        license.CustomerName = plan == "Normal" ? "Demo Normal" : plan == "Ttac" ? "Demo Ttac" : plan == "TtacPlus" ? "Demo Ttac Plus" : "Demo Trial";
-        license.IssuedAt = DateTime.Now;
-        return license;
-    }
+    // CreateDemoLicense/ActivateDemoLicense و دکمه‌های LicenseDemo*Button_Click از اینجا حذف
+    // شدند - طبق ممیزی امنیتی، این‌ها یک لایسنس واقعی (از جمله «تی‌تک‌پلاس» یک‌ساله‌ی کامل) با
+    // امضای HMAC قدیمی (SCB1) خودشان می‌ساختند و فعال می‌کردند، بدون هیچ تماسی با سرور. مسیر
+    // پذیرش SCB1 هم در TryReadLicenseCode غیرفعال شد (نگاه کنید به یادداشت همان‌جا).
 
     private void LicenseButton_Click(object sender, RoutedEventArgs e)
     {
@@ -13797,18 +13806,6 @@ private void SaveTtTeckSettings()
             LicenseMessageText.Text = ex.Message;
         }
     }
-
-    private void ActivateDemoLicense(string plan)
-    {
-        string code = CreateLicenseCode(CreateDemoLicense(plan));
-        LicenseCodeTextBox.Text = code;
-        _ = ActivateLicenseFromCodeAsync(code);
-    }
-
-    private void LicenseDemoTrialButton_Click(object sender, RoutedEventArgs e) => ActivateDemoLicense("Trial");
-    private void LicenseDemoStandardButton_Click(object sender, RoutedEventArgs e) => ActivateDemoLicense("Normal");
-    private void LicenseDemoProButton_Click(object sender, RoutedEventArgs e) => ActivateDemoLicense("Ttac");
-    private void LicenseDemoExpiredButton_Click(object sender, RoutedEventArgs e) => ActivateDemoLicense("TtacPlus");
 
     private void MainWindow_OnClosing(object sender, CancelEventArgs e)
     {
