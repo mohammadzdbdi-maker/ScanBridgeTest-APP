@@ -1107,14 +1107,19 @@ public sealed class ScanBridgeService : IDisposable
         {
             try
             {
-                string[] parts = line.Split(',', 2);
-                if (parts.Length < 2)
+                // فایل سه‌ستونی است: timestamp_iso,deviceName,barcode (نگاه کنید به AppendScan).
+                // قبلاً اینجا Split(',', 2) استفاده می‌شد که سطر را فقط به ۲ تکه می‌شکست - یعنی
+                // parts[1] در واقع "نام‌دستگاه,بارکد" چسبیده‌به‌هم بود، نه فقط بارکد. حالا با
+                // ParseCsvLine (که quote را هم درست می‌فهمد، برای نام‌دستگاه/بارکدی که به‌ندرت
+                // ممکن است خودش کاما داشته باشد) هر سه ستون جدا استخراج می‌شود.
+                var parts = ParseCsvLine(line);
+                if (parts.Count < 3)
                 {
                     continue;
                 }
 
                 var timestamp = DateTimeOffset.Parse(parts[0].Trim(), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal);
-                var barcode = parts[1].Trim();
+                var barcode = parts[2].Trim();
                 if (timestamp.UtcDateTime.Date == today)
                 {
                     result.Add(new ScanEntry(timestamp.UtcDateTime, barcode));
@@ -1127,6 +1132,47 @@ public sealed class ScanBridgeService : IDisposable
         }
 
         return result.OrderByDescending(x => x.TimestampUtc).ToList();
+    }
+
+    // یک CSV-parser ساده و quote-آگاه: کاما داخل یک فیلدِ داخل گیومه را جدا-کننده حساب نمی‌کند و
+    // گیومه‌ی دوتایی ("") را به یک گیومه‌ی تکی تبدیل می‌کند - دقیقاً معکوس EscapeCsv در همین فایل.
+    private static List<string> ParseCsvLine(string line)
+    {
+        var result = new List<string>();
+        if (line is null)
+            return result;
+
+        var current = new StringBuilder();
+        bool inQuotes = false;
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    current.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                result.Add(current.ToString().Trim());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(c);
+            }
+        }
+
+        result.Add(current.ToString().Trim());
+        return result;
     }
 
     public void PruneOldScans()
