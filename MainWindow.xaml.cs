@@ -8698,16 +8698,29 @@ nQIDAQAB
     private string ConvertBirthDateToTtacApiDate(string normalizedDate)
     {
         var parts = normalizedDate.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        int year = int.Parse(parts[0]);
-        int month = int.Parse(parts[1]);
-        int day = int.Parse(parts[2]);
+        if (parts.Length != 3 ||
+            !int.TryParse(parts[0], out int year) ||
+            !int.TryParse(parts[1], out int month) ||
+            !int.TryParse(parts[2], out int day))
+        {
+            return string.Empty;
+        }
 
         // نکته مهم: سایت تاریخ را شمسی نمایش می‌دهد، اما در API مقدار میلادی ارسال می‌کند.
         // مثال مشاهده‌شده در HAR: 1379/06/20 در سایت => 2000/09/10 در درخواست API.
         if (year >= 1200 && year <= 1500)
         {
-            DateTime gregorian = _persianCalendar.ToDateTime(year, month, day, 0, 0, 0, 0);
-            return gregorian.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture);
+            try
+            {
+                DateTime gregorian = _persianCalendar.ToDateTime(year, month, day, 0, 0, 0, 0);
+                return gregorian.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // تاریخ شمسیِ نامعتبر (مثلاً 31 مهر یا 30 اسفند سال غیرکبیسه) —
+                // به‌جای کرشِ فرایند ثبت، تاریخ ارسال نمی‌شود.
+                return string.Empty;
+            }
         }
 
         // اگر کاربر خودش تاریخ میلادی وارد کرد، همان فرمت استاندارد به API ارسال می‌شود.
@@ -14026,9 +14039,9 @@ public class ScanbridgeLicense
 
     public string GetPersianPlanName() => Plan switch
     {
-        "Normal" => "عادی",
+        "Normal" => "پایه",
         "Ttac" => "تی‌تک",
-        "TtacPlus" => "تی‌تک پلاس",
+        "TtacPlus" => "حرفه‌ای",
         "Trial" => "آزمایشی",
         _ => Plan
     };
