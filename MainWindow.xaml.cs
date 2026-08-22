@@ -12972,9 +12972,19 @@ private void SaveTtTeckSettings()
 
     private async void TtTeckWebViewCloseButton_Click(object sender, RoutedEventArgs e)
     {
-        await GetTtacAccessTokenOnUiThreadAsync(false);
+        // پنجره بلافاصله بسته می‌شود — خواندن توکن از WebView (که اگر صفحه در حال بارگذاری
+        // باشد یا رندرر مشغول باشد ممکن است چند ثانیه یا بیشتر معطل شود) به بعد از بستن
+        // موکول شده تا دکمه‌ی ✕ هرگز گیر نکند. WebView بعد از مخفی‌شدن پنجره هم پابرجاست و
+        // خواندن توکن در پس‌زمینه همچنان کار می‌کند.
         TtTeckWebViewOverlay.Visibility = Visibility.Collapsed;
         MainContent.Effect = null;
+        UpdateTtacConnectionStatusUI();
+
+        try
+        {
+            await GetTtacAccessTokenOnUiThreadAsync(false);
+        }
+        catch { }
         UpdateTtacConnectionStatusUI();
     }
 
@@ -13937,30 +13947,6 @@ private void SaveTtTeckSettings()
     {
         System.Windows.Clipboard.SetText(_service?.ComputerId ?? Environment.MachineName);
         LicenseMessageText.Text = _localization.GetString("SystemIDCopied");
-    }
-
-    // کپی هر فیلد کارت‌های اطلاعات لایسنس (پلن/کاربر/انقضا/آخرین بررسی) — Tag دکمه تعیین‌کننده است.
-    private void LicenseCopyFieldButton_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            string? key = (sender as System.Windows.Controls.Button)?.Tag as string;
-            string? value = key switch
-            {
-                "plan" => LicenseInfoPlanValue?.Text,
-                "pharmacy" => LicenseInfoPharmacyValue?.Text,
-                "expiry" => LicenseInfoExpiryValue?.Text,
-                "lastcheck" => LicenseInfoLastCheckValue?.Text,
-                _ => null,
-            };
-
-            if (string.IsNullOrWhiteSpace(value) || value == "-")
-                return;
-
-            System.Windows.Clipboard.SetText(value);
-            LicenseMessageText.Text = "✓ کپی شد";
-        }
-        catch { }
     }
 
     private async void LicenseActivateButton_Click(object sender, RoutedEventArgs e)

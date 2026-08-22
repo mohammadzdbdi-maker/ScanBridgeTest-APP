@@ -820,7 +820,6 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBox x:Name="LicenseInfoPlanValue" Text="-" IsReadOnly="True" Background="Transparent" BorderThickness="0" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A" VerticalContentAlignment="Center" Padding="2,6" TextWrapping="Wrap" />
-                                            <Button Grid.Column="1" Content="کپی" Click="LicenseCopyFieldButton_Click" Tag="plan" Style="{StaticResource RoundedButtonStyle}" Background="#2563EB" Width="52" Height="30" FontSize="12" Margin="6,0,0,0" />
                                         </Grid>
                                     </StackPanel>
                                 </Border>
@@ -835,7 +834,6 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBox x:Name="LicenseInfoPharmacyValue" Text="-" IsReadOnly="True" Background="Transparent" BorderThickness="0" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A" VerticalContentAlignment="Center" Padding="2,6" TextWrapping="Wrap" />
-                                            <Button Grid.Column="1" Content="کپی" Click="LicenseCopyFieldButton_Click" Tag="pharmacy" Style="{StaticResource RoundedButtonStyle}" Background="#2563EB" Width="52" Height="30" FontSize="12" Margin="6,0,0,0" />
                                         </Grid>
                                     </StackPanel>
                                 </Border>
@@ -850,7 +848,6 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBox x:Name="LicenseInfoExpiryValue" Text="-" IsReadOnly="True" Background="Transparent" BorderThickness="0" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A" VerticalContentAlignment="Center" Padding="2,6" FlowDirection="LeftToRight" TextAlignment="Right" />
-                                            <Button Grid.Column="1" Content="کپی" Click="LicenseCopyFieldButton_Click" Tag="expiry" Style="{StaticResource RoundedButtonStyle}" Background="#2563EB" Width="52" Height="30" FontSize="12" Margin="6,0,0,0" />
                                         </Grid>
                                     </StackPanel>
                                 </Border>
@@ -865,7 +862,6 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBox x:Name="LicenseInfoLastCheckValue" Text="-" IsReadOnly="True" Background="Transparent" BorderThickness="0" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A" VerticalContentAlignment="Center" Padding="2,6" FlowDirection="LeftToRight" TextAlignment="Right" />
-                                            <Button Grid.Column="1" Content="کپی" Click="LicenseCopyFieldButton_Click" Tag="lastcheck" Style="{StaticResource RoundedButtonStyle}" Background="#2563EB" Width="52" Height="30" FontSize="12" Margin="6,0,0,0" />
                                         </Grid>
                                     </StackPanel>
                                 </Border>
