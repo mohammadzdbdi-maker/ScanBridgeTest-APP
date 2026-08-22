@@ -4094,7 +4094,7 @@ nQIDAQAB
             && string.Equals(_pendingRegistrationTtTeckRow.Barcode, row.Barcode, StringComparison.OrdinalIgnoreCase))
         {
             MainContent.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 18 };
-            FocusAndSelect(TtTeckRegistrationAmountTextBox);
+            FocusAndSelect(TtTeckRegistrationNationalIdTextBox);
             return;
         }
 
@@ -4130,14 +4130,14 @@ nQIDAQAB
         UpdateTtacRegistrationStageButtons();
         TtTeckRegistrationOverlay.Visibility = Visibility.Visible;
         MainContent.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 18 };
-        TtTeckRegistrationAmountTextBox.Focus();
-        TtTeckRegistrationAmountTextBox.SelectAll();
+        TtTeckRegistrationNationalIdTextBox.Focus();
+        TtTeckRegistrationNationalIdTextBox.SelectAll();
 
         // به محض باز شدن فرم، کپچای جدید گرفته می‌شود؛ فوکوس روی فیلد اول می‌ماند تا کاربر با Enter جلو برود.
         Dispatcher.BeginInvoke(new Action(async () =>
         {
             await LoadTtacCaptchaAsync(false);
-            FocusAndSelect(TtTeckRegistrationAmountTextBox);
+            FocusAndSelect(TtTeckRegistrationNationalIdTextBox);
         }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 
         // اگر این یک قلم شیرخشک است و گوشی‌ای وصل است، همین فرم روی گوشی هم مرحله‌به‌مرحله شروع
@@ -12662,7 +12662,7 @@ private void SaveTtTeckSettings()
             }
             if (TtTeckRegistrationOverlay.Visibility == Visibility.Visible)
             {
-                FocusAndSelect(TtTeckRegistrationAmountTextBox);
+                FocusAndSelect(TtTeckRegistrationNationalIdTextBox);
             }
         }
         catch { }
@@ -13937,6 +13937,30 @@ private void SaveTtTeckSettings()
     {
         System.Windows.Clipboard.SetText(_service?.ComputerId ?? Environment.MachineName);
         LicenseMessageText.Text = _localization.GetString("SystemIDCopied");
+    }
+
+    // کپی هر فیلد کارت‌های اطلاعات لایسنس (پلن/کاربر/انقضا/آخرین بررسی) — Tag دکمه تعیین‌کننده است.
+    private void LicenseCopyFieldButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string? key = (sender as System.Windows.Controls.Button)?.Tag as string;
+            string? value = key switch
+            {
+                "plan" => LicenseInfoPlanValue?.Text,
+                "pharmacy" => LicenseInfoPharmacyValue?.Text,
+                "expiry" => LicenseInfoExpiryValue?.Text,
+                "lastcheck" => LicenseInfoLastCheckValue?.Text,
+                _ => null,
+            };
+
+            if (string.IsNullOrWhiteSpace(value) || value == "-")
+                return;
+
+            System.Windows.Clipboard.SetText(value);
+            LicenseMessageText.Text = "✓ کپی شد";
+        }
+        catch { }
     }
 
     private async void LicenseActivateButton_Click(object sender, RoutedEventArgs e)

@@ -789,54 +789,109 @@
                                Margin="0,0,0,10" />
 
                     <Border x:Name="LicenseInfoTable"
-                            Background="#F8FAFC"
-                            BorderBrush="#E2E8F0"
-                            BorderThickness="1"
-                            CornerRadius="16"
-                            Padding="12"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            CornerRadius="0"
+                            Padding="0"
                             Margin="0,0,0,12"
                             Visibility="Collapsed">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="10" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="10" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="10" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
 
-                            <TextBlock x:Name="LicenseInfoPlanLabel" Grid.Row="0" Grid.Column="0" Text="پلن" FontWeight="Bold" Foreground="#475569" Margin="0,0,10,8" />
-                            <TextBlock x:Name="LicenseInfoPlanValue" Grid.Row="0" Grid.Column="1" Text="-" Foreground="#0F172A" TextWrapping="Wrap" Margin="0,0,18,8" />
+                                <!-- کارت پلن -->
+                                <Border Grid.Row="0" Grid.Column="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Padding="10,8">
+                                    <StackPanel>
+                                        <TextBlock x:Name="LicenseInfoPlanLabel" Text="پلن" FontSize="11.5" FontWeight="Bold" Foreground="#64748B" Margin="4,0,0,4" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox x:Name="LicenseInfoPlanValue" Text="-" IsReadOnly="True" Background="Transparent" BorderThickness="0" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A" VerticalContentAlignment="Center" Padding="2,6" TextWrapping="Wrap" />
+                                            <Button Grid.Column="1" Content="کپی" Click="LicenseCopyFieldButton_Click" Tag="plan" Style="{StaticResource RoundedButtonStyle}" Background="#2563EB" Width="52" Height="30" FontSize="12" Margin="6,0,0,0" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
 
-                            <TextBlock x:Name="LicenseInfoPharmacyLabel" Grid.Row="0" Grid.Column="2" Text="کاربر" FontWeight="Bold" Foreground="#475569" Margin="0,0,10,8" />
-                            <TextBlock x:Name="LicenseInfoPharmacyValue" Grid.Row="0" Grid.Column="3" Text="-" Foreground="#0F172A" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                <!-- کارت کاربر / داروخانه -->
+                                <Border Grid.Row="0" Grid.Column="2" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Padding="10,8">
+                                    <StackPanel>
+                                        <TextBlock x:Name="LicenseInfoPharmacyLabel" Text="کاربر" FontSize="11.5" FontWeight="Bold" Foreground="#64748B" Margin="4,0,0,4" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox x:Name="LicenseInfoPharmacyValue" Text="-" IsReadOnly="True" Background="Transparent" BorderThickness="0" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A" VerticalContentAlignment="Center" Padding="2,6" TextWrapping="Wrap" />
+                                            <Button Grid.Column="1" Content="کپی" Click="LicenseCopyFieldButton_Click" Tag="pharmacy" Style="{StaticResource RoundedButtonStyle}" Background="#2563EB" Width="52" Height="30" FontSize="12" Margin="6,0,0,0" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
 
-                            <TextBlock x:Name="LicenseInfoExpiryLabel" Grid.Row="1" Grid.Column="0" Text="تاریخ انقضا" FontWeight="Bold" Foreground="#475569" Margin="0,0,10,8" />
-                            <TextBlock x:Name="LicenseInfoExpiryValue" Grid.Row="1" Grid.Column="1" Text="-" Foreground="#0F172A" FlowDirection="LeftToRight" TextAlignment="Right" TextWrapping="Wrap" Margin="0,0,18,8" />
+                                <!-- کارت تاریخ انقضا -->
+                                <Border Grid.Row="2" Grid.Column="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Padding="10,8">
+                                    <StackPanel>
+                                        <TextBlock x:Name="LicenseInfoExpiryLabel" Text="تاریخ انقضا" FontSize="11.5" FontWeight="Bold" Foreground="#64748B" Margin="4,0,0,4" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox x:Name="LicenseInfoExpiryValue" Text="-" IsReadOnly="True" Background="Transparent" BorderThickness="0" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A" VerticalContentAlignment="Center" Padding="2,6" FlowDirection="LeftToRight" TextAlignment="Right" />
+                                            <Button Grid.Column="1" Content="کپی" Click="LicenseCopyFieldButton_Click" Tag="expiry" Style="{StaticResource RoundedButtonStyle}" Background="#2563EB" Width="52" Height="30" FontSize="12" Margin="6,0,0,0" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
 
-                            <TextBlock x:Name="LicenseInfoLastCheckLabel" Grid.Row="1" Grid.Column="2" Text="آخرین بروزرسانی" FontWeight="Bold" Foreground="#475569" Margin="0,0,10,8" />
-                            <TextBlock x:Name="LicenseInfoLastCheckValue" Grid.Row="1" Grid.Column="3" Text="-" Foreground="#0F172A" FlowDirection="LeftToRight" TextAlignment="Right" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                <!-- کارت آخرین بروزرسانی -->
+                                <Border Grid.Row="2" Grid.Column="2" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Padding="10,8">
+                                    <StackPanel>
+                                        <TextBlock x:Name="LicenseInfoLastCheckLabel" Text="آخرین بروزرسانی" FontSize="11.5" FontWeight="Bold" Foreground="#64748B" Margin="4,0,0,4" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox x:Name="LicenseInfoLastCheckValue" Text="-" IsReadOnly="True" Background="Transparent" BorderThickness="0" FontSize="13.5" FontWeight="SemiBold" Foreground="#0F172A" VerticalContentAlignment="Center" Padding="2,6" FlowDirection="LeftToRight" TextAlignment="Right" />
+                                            <Button Grid.Column="1" Content="کپی" Click="LicenseCopyFieldButton_Click" Tag="lastcheck" Style="{StaticResource RoundedButtonStyle}" Background="#2563EB" Width="52" Height="30" FontSize="12" Margin="6,0,0,0" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
 
-                            <TextBlock x:Name="LicenseInfoPhoneLabel" Grid.Row="2" Grid.Column="0" Text="شماره تماس" FontWeight="Bold" Foreground="#475569" Margin="0,0,10,0" Visibility="Collapsed" />
-                            <TextBlock x:Name="LicenseInfoPhoneValue" Grid.Row="2" Grid.Column="1" Text="-" Foreground="#0F172A" FlowDirection="LeftToRight" TextAlignment="Right" TextWrapping="Wrap" Margin="0,0,18,0" Visibility="Collapsed" />
-                        </Grid>
-                    </Border>
+                                <!-- کارت شناسه سیستم (تمام‌عرض) -->
+                                <Border Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Background="#F0F9FF" BorderBrush="#BAE6FD" BorderThickness="1" CornerRadius="14" Padding="10,8">
+                                    <StackPanel>
+                                        <TextBlock x:Name="LicenseSystemIdLabel" Text="شناسه سیستم" FontSize="11.5" FontWeight="Bold" Foreground="#0369A1" Margin="4,0,0,4" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox x:Name="LicenseSystemIdText" IsReadOnly="True" Height="36" FontSize="13" TextAlignment="Center" FlowDirection="LeftToRight" Style="{StaticResource RoundedInputStyle}" />
+                                            <Button x:Name="LicenseCopySystemIdButton" Grid.Column="1" Content="کپی" Click="LicenseCopySystemIdButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#7C3AED" Width="70" Height="36" FontSize="13" Margin="10,0,0,0" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
 
-                    <Border Background="#F9FAFB" BorderBrush="#E5E7EB" BorderThickness="1" CornerRadius="14" Padding="12" Margin="0,0,0,12">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock x:Name="LicenseSystemIdLabel" Text="شناسه سیستم" FontWeight="Bold" Foreground="#4B5563" VerticalAlignment="Center" Margin="0,0,12,0" />
-                            <TextBox x:Name="LicenseSystemIdText" Grid.Column="1" IsReadOnly="True" Height="38" FontSize="13" TextAlignment="Center" FlowDirection="LeftToRight" Style="{StaticResource RoundedInputStyle}" />
-                            <Button x:Name="LicenseCopySystemIdButton" Grid.Column="2" Content="کپی" Click="LicenseCopySystemIdButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#7C3AED" Width="90" Height="38" Margin="12,0,0,0" />
-                        </Grid>
+                            <!-- مخفی: شماره تماس (فقط برای سازگاری کد) -->
+                            <StackPanel Visibility="Collapsed">
+                                <TextBlock x:Name="LicenseInfoPhoneLabel" Text="شماره تماس" />
+                                <TextBlock x:Name="LicenseInfoPhoneValue" Text="-" />
+                            </StackPanel>
+                        </StackPanel>
                     </Border>
                     <TextBlock x:Name="LicenseCodeLabel" Text="کلید لایسنس / کد فعال‌سازی" FontWeight="Bold" Foreground="#4B5563" Margin="0,0,0,6" />
                     <TextBox x:Name="LicenseCodeTextBox"
@@ -1872,7 +1927,7 @@
                                     </ComboBox>
 
                                     <TextBlock x:Name="TtTeckRegistrationAmountLabel" Text="تعداد" FontWeight="Bold" Foreground="#4B5563" Margin="0,0,0,5" TextAlignment="Center" />
-                                    <TextBox x:Name="TtTeckRegistrationAmountTextBox" Style="{StaticResource RoundedInputStyle}" Text="1" Width="420" Height="42" FontSize="18" Padding="12,7" TextAlignment="Center" TextChanged="TtacRegistrationField_TextChanged" KeyDown="TtTeckRegistrationAmountTextBox_KeyDown" Margin="0,0,0,10" />
+                                    <TextBox x:Name="TtTeckRegistrationAmountTextBox" Style="{StaticResource RoundedInputStyle}" Text="1" IsReadOnly="True" Background="#F1F5F9" Width="420" Height="42" FontSize="18" Padding="12,7" TextAlignment="Center" TextChanged="TtacRegistrationField_TextChanged" KeyDown="TtTeckRegistrationAmountTextBox_KeyDown" Margin="0,0,0,10" ToolTip="تعداد همیشه ۱ است تا اسکنِ گوشی به‌اشتباه در این فیلد ثبت نشود؛ برای تعداد بیشتر، همان کالا را چند بار اسکن کنید." />
 
                                     <TextBlock x:Name="TtTeckRegistrationNationalIdLabel" Text="کد ملی بیمار" FontWeight="Bold" Foreground="#4B5563" Margin="0,0,0,5" TextAlignment="Center" />
                                     <TextBox x:Name="TtTeckRegistrationNationalIdTextBox" Style="{StaticResource RoundedInputStyle}" Width="420" Height="48" FontSize="24" Padding="12,8" TextAlignment="Center" TextChanged="TtacRegistrationField_TextChanged" KeyDown="TtTeckRegistrationNationalIdTextBox_KeyDown" Margin="0,0,0,10" />
@@ -3560,15 +3615,21 @@
                                     Background="#F0F7FF"
                                     CornerRadius="14"
                                     Padding="14">
-                                <StackPanel VerticalAlignment="Top">
-                                    <TextBlock x:Name="LanguageCardTitle"
-                                               Text="🌐 زبان"
-                                               FontSize="14"
-                                               FontWeight="Bold"
-                                               Foreground="#1A237E"
-                                               Margin="0,0,0,10" />
-
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Grid.Row="0">
+                                        <TextBlock x:Name="LanguageCardTitle"
+                                                   Text="🌐 زبان"
+                                                   FontSize="14"
+                                                   FontWeight="Bold"
+                                                   Foreground="#1A237E"
+                                                   Margin="0,0,0,10" />
+                                    </StackPanel>
                                     <Button x:Name="ChangeLanguageButton"
+                                            Grid.Row="1"
                                             Content="تغییر زبان"
                                             Click="ChangeLanguageButton_Click"
                                             Style="{StaticResource RoundedButtonStyle}"
@@ -3576,7 +3637,7 @@
                                             Padding="10,8"
                                             FontSize="13"
                                             Height="38" />
-                                </StackPanel>
+                                </Grid>
                             </Border>
 
                             <!-- TtTeck (فشرده) -->
@@ -3585,14 +3646,20 @@
                                     Background="#FEF3F2"
                                     CornerRadius="14"
                                     Padding="14">
-                                <StackPanel VerticalAlignment="Top">
-                                    <TextBlock Text="⚙️ TtTeck"
-                                               FontSize="14"
-                                               FontWeight="Bold"
-                                               Foreground="#7C3AED"
-                                               Margin="0,0,0,10" />
-
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Grid.Row="0">
+                                        <TextBlock Text="⚙️ TtTeck"
+                                                   FontSize="14"
+                                                   FontWeight="Bold"
+                                                   Foreground="#7C3AED"
+                                                   Margin="0,0,0,10" />
+                                    </StackPanel>
                                     <CheckBox x:Name="TtTeckEnabledCheckBox"
+                                              Grid.Row="1"
                                               FontSize="12"
                                               Foreground="#333333"
                                               Checked="TtTeckEnabledCheckBox_Checked"
@@ -3601,7 +3668,7 @@
                                                    Text="فعال‌سازی جستجوی خودکار تی‌تک"
                                                    TextWrapping="Wrap" />
                                     </CheckBox>
-                                </StackPanel>
+                                </Grid>
                             </Border>
 
                             <!-- Device Reconnect (فشرده) -->
@@ -3609,20 +3676,27 @@
                                     Background="#F0FDF4"
                                     CornerRadius="14"
                                     Padding="14">
-                                <StackPanel VerticalAlignment="Top">
-                                    <TextBlock x:Name="DeviceReconnectTitle"
-                                               Text="🔌 اتصال مجدد دستگاه‌ها"
-                                               FontSize="14"
-                                               FontWeight="Bold"
-                                               Foreground="#047857"
-                                               Margin="0,0,0,6" />
-                                    <TextBlock x:Name="DeviceReconnectDescription"
-                                               Text="اگر گوشی را قطع کرده‌اید و می‌خواهید دوباره وصل شود، این گزینه را بزنید."
-                                               FontSize="11"
-                                               Foreground="#4B5563"
-                                               TextWrapping="Wrap"
-                                               Margin="0,0,0,10" />
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Grid.Row="0">
+                                        <TextBlock x:Name="DeviceReconnectTitle"
+                                                   Text="🔌 اتصال مجدد دستگاه‌ها"
+                                                   FontSize="14"
+                                                   FontWeight="Bold"
+                                                   Foreground="#047857"
+                                                   Margin="0,0,0,6" />
+                                        <TextBlock x:Name="DeviceReconnectDescription"
+                                                   Text="اگر گوشی را قطع کرده‌اید و می‌خواهید دوباره وصل شود، این گزینه را بزنید."
+                                                   FontSize="11"
+                                                   Foreground="#4B5563"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,0,0,10" />
+                                    </StackPanel>
                                     <Button x:Name="AllowDeviceReconnectButton"
+                                            Grid.Row="1"
                                             Content="فعال‌سازی اتصال مجدد"
                                             Click="AllowDeviceReconnectButton_Click"
                                             Style="{StaticResource RoundedButtonStyle}"
@@ -3630,7 +3704,7 @@
                                             Padding="10,8"
                                             FontSize="13"
                                             Height="38" />
-                                </StackPanel>
+                                </Grid>
                             </Border>
 
                             <!-- بروزرسانی برنامه (فشرده) - بررسی دستی، جدا از بررسی خودکار روزانه (نگاه
@@ -3639,19 +3713,26 @@
                                     Background="#EEF2FF"
                                     CornerRadius="14"
                                     Padding="14">
-                                <StackPanel VerticalAlignment="Top">
-                                    <TextBlock x:Name="AppUpdateSectionTitle"
-                                               Text="🔄 بروزرسانی"
-                                               FontSize="14"
-                                               FontWeight="Bold"
-                                               Foreground="#4338CA"
-                                               Margin="0,0,0,6" />
-                                    <TextBlock x:Name="AppUpdateCurrentVersionText"
-                                               FontSize="11"
-                                               Foreground="#4B5563"
-                                               TextWrapping="Wrap"
-                                               Margin="0,0,0,10" />
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Grid.Row="0">
+                                        <TextBlock x:Name="AppUpdateSectionTitle"
+                                                   Text="🔄 بروزرسانی"
+                                                   FontSize="14"
+                                                   FontWeight="Bold"
+                                                   Foreground="#4338CA"
+                                                   Margin="0,0,0,6" />
+                                        <TextBlock x:Name="AppUpdateCurrentVersionText"
+                                                   FontSize="11"
+                                                   Foreground="#4B5563"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,0,0,10" />
+                                    </StackPanel>
                                     <Button x:Name="CheckForUpdateButton"
+                                            Grid.Row="1"
                                             Content="بررسی بروزرسانی"
                                             Click="CheckForUpdateButton_Click"
                                             Style="{StaticResource RoundedButtonStyle}"
@@ -3659,7 +3740,7 @@
                                             Padding="10,8"
                                             FontSize="13"
                                             Height="38" />
-                                </StackPanel>
+                                </Grid>
                             </Border>
                         </Grid>
 
