@@ -287,6 +287,19 @@ public sealed class ScanBridgeService : IDisposable
                     if (!string.IsNullOrWhiteSpace(deviceName))
                     {
                         state.DeviceName = deviceName;
+
+                        // همین گوشی قبلاً از مسیر دیگری (مثلاً Wi-Fi) وصل شده و سوییچ کرده
+                        // (مثلاً به کابل) — اتصال قبلی اگر هنوز بسته نشده باشد «زامبی» توی
+                        // لیست دستگاه‌ها می‌ماند و به‌نظر می‌رسد دو گوشی وصل‌اند. اتصال قبلیِ
+                        // هم‌نام را همین‌جا می‌بندیم؛ OnClose آن خودش همه‌چیز را پاک می‌کند.
+                        foreach (var dup in _connectedDevices.ToArray())
+                        {
+                            if (dup.Key == socket)
+                                continue;
+                            if (!string.Equals(dup.Value.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase))
+                                continue;
+                            try { dup.Key.Close(); } catch { }
+                        }
                     }
                     state.HasScanned = true;
                     PublishConnectedDevices();
@@ -1562,6 +1575,8 @@ public sealed class ScanBridgeService : IDisposable
     private void PublishConnectedDevices()
     {
         var snapshot = _connectedDevices.Values
+            .GroupBy(s => s.DeviceName, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.OrderByDescending(s => s.LastSeenUtc).First())
             .Select(s => new ConnectedDeviceInfo(s.DeviceName, s.HasScanned, s.LinkKind))
             .ToList();
 
