@@ -109,6 +109,7 @@ nQIDAQAB
     private readonly object _ttTeckDetailsCacheFileLock = new();
     private readonly Dictionary<string, string> _deviceAliases = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ConnectedDeviceInfo> _lastConnectedDevices = new();
+    private bool _usbInternetTipShown;
     private string _editingDeviceOriginalName = string.Empty;
     private TtTeckHistoryRow? _pendingRetryTtTeckRow;
     private TtTeckHistoryRow? _pendingRegistrationTtTeckRow;
@@ -11766,18 +11767,86 @@ nQIDAQAB
             DeviceRows.Clear();
             foreach (var device in devices)
             {
+                string badge = device.LinkKind switch
+                {
+                    "USB" => "🔌 کابل",
+                    "WiFi" => "📶 Wi-Fi",
+                    _ => "🔗 LAN"
+                };
+
                 DeviceRows.Add(new DeviceRowDisplayViewModel
                 {
                     OriginalDeviceName = device.DeviceName,
                     DeviceName = GetDeviceDisplayName(device.DeviceName),
+                    LinkBadge = badge,
                     StatusColor = device.HasScanned
                         ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4C, 0xAF, 0x50))
                         : new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0x98, 0x00))
                 });
+
+                if (device.LinkKind == "USB" && !_usbInternetTipShown)
+                {
+                    _usbInternetTipShown = true;
+                    ShowStyledMessage(
+                        "اتصال با کابل برقرار شد ✅",
+                        "اگر اینترنت سیستم قطع شد، از تنظیمات دکمه‌ی «رفع تداخل اینترنت USB» را بزنید تا اینترنت از طریق وای‌فای/اترنت ادامه پیدا کند و اتصال کابل هم سالم بماند.",
+                        false);
+                }
             }
 
             NoDevicesText.Visibility = DeviceRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }));
+    }
+
+    // «اینترنت جانبی» در اتصال USB: آداپتور تترینگِ کابل به‌صورت پیش‌فرض یک مسیر پیش‌فرضِ تازه
+    // با متریک پایین‌تر می‌سازد و اینترنت ویندوز را به شبکه‌ی بدون‌اینترنتِ گوشی می‌بُرد. با
+    // بالا بردن متریک همان آداپتور (نیازمند تأیید مدیر، یک‌بار)، اینترنت از مسیر وای‌فای/اترنت
+    // ادامه پیدا می‌کند و ارتباطِ هم‌ساب‌نت با گوشی دست‌نخورده می‌ماند.
+    private void FixUsbInternetButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var targets = new List<string>();
+            foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up)
+                    continue;
+                var d = (ni.Description + " " + ni.Name).ToLowerInvariant();
+                if (!(d.Contains("rndis") || d.Contains("usb") || d.Contains("ncm") || d.Contains("remote ndis")))
+                    continue;
+                if (!ni.GetIPProperties().UnicastAddresses.Any(ua =>
+                        ua.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork))
+                    continue;
+                targets.Add(ni.Name);
+            }
+
+            if (targets.Count == 0)
+            {
+                ShowStyledMessage("پیدا نشد", "آداپتور شبکه‌ی USB فعالی پیدا نشد. اول کابل را وصل و USB Tethering را روشن کنید.", true);
+                return;
+            }
+
+            var cmds = string.Join(" & ", targets.Select(n =>
+                "netsh interface ipv4 set interface interface=\"" + n + "\" metric=4000"));
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = "/c " + cmds + " & pause",
+                Verb = "runas",
+                UseShellExecute = true,
+            };
+            Process.Start(psi);
+
+            ShowStyledMessage(
+                "در حال رفع تداخل اینترنت",
+                "در پنجره‌ی باز‌شده اجازه‌ی مدیر (Yes) را بدهید. بعد از آن اینترنت سیستم از مسیر وای‌فای/اترنت برمی‌گردد و اتصال کابل هم کار می‌کند.",
+                false);
+        }
+        catch (Exception ex)
+        {
+            ShowStyledMessage("خطا", "اجرای دستور ممکن نشد: " + ex.Message, true);
+        }
     }
 
     // ---------- Support ----------
@@ -14193,6 +14262,7 @@ public class DeviceRowDisplayViewModel
 {
     public string OriginalDeviceName { get; set; } = "";
     public string DeviceName { get; set; } = "";
+    public string LinkBadge { get; set; } = "";
     public System.Windows.Media.Brush StatusColor { get; set; } = System.Windows.Media.Brushes.Transparent;
 }
 

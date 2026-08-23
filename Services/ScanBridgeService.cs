@@ -22,14 +22,16 @@ public enum ConnectionState
 
 public sealed class ConnectedDeviceInfo
 {
-    public ConnectedDeviceInfo(string deviceName, bool hasScanned)
+    public ConnectedDeviceInfo(string deviceName, bool hasScanned, string linkKind)
     {
         DeviceName = deviceName;
         HasScanned = hasScanned;
+        LinkKind = linkKind;
     }
 
     public string DeviceName { get; }
     public bool HasScanned { get; }
+    public string LinkKind { get; }
 }
 
 public sealed class ConnectedDevicesChangedEventArgs : EventArgs
@@ -130,6 +132,7 @@ public sealed class ScanBridgeService : IDisposable
         public string DeviceName = "دستگاه ناشناس";
         public bool HasScanned;
         public DateTime LastSeenUtc = DateTime.UtcNow;
+        public string LinkKind = "LAN";
     }
 
     private sealed class PeerInfo
@@ -182,7 +185,11 @@ public sealed class ScanBridgeService : IDisposable
                     ConnectedClients++;
                 }
 
-                _connectedDevices[socket] = new DeviceState { LastSeenUtc = DateTime.UtcNow };
+                _connectedDevices[socket] = new DeviceState
+                {
+                    LastSeenUtc = DateTime.UtcNow,
+                    LinkKind = GetLinkKindForClientIp(socket.ConnectionInfo?.ClientIpAddress ?? string.Empty)
+                };
 
                 PublishConnectionState();
                 PublishConnectedDevices();
@@ -333,6 +340,58 @@ public sealed class ScanBridgeService : IDisposable
     // می‌شود - عمداً از سرور اصلی گوشی‌ها جدا نگه داشته شده تا هیچ‌وقت به‌عنوان یک «گوشی وصل‌شده»
     // در رابط کاربری دیده نشود.
     // =========================================================================================
+
+    /// <summary>
+    /// نوع لینک دستگاه متصل را از روی IP آن و آداپتورهای شبکه‌ی همین سیستم تشخیص می‌دهد:
+    /// اگر IP گوشی در ساب‌نتِ یکی از آداپتورهای USB/RNDIS/NCM باشد یعنی اتصال با کابل است.
+    /// </summary>
+    public static string GetLinkKindForClientIp(string clientIp)
+    {
+        try
+        {
+            if (!System.Net.IPAddress.TryParse(clientIp, out var ip))
+                return "LAN";
+
+            foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up)
+                    continue;
+
+                foreach (var ua in ni.GetIPProperties().UnicastAddresses)
+                {
+                    if (ua.Address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+                        continue;
+                    var mask = ua.IPv4Mask;
+                    if (mask == null)
+                        continue;
+                    if (!IsInSameSubnet(ip, ua.Address, mask))
+                        continue;
+
+                    var d = (ni.Description + " " + ni.Name).ToLowerInvariant();
+                    if (d.Contains("rndis") || d.Contains("usb") || d.Contains("ncm")
+                        || d.Contains("remote ndis") || d.Contains("directly"))
+                        return "USB";
+                    if (ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211
+                        || d.Contains("wi-fi") || d.Contains("wifi") || d.Contains("wireless"))
+                        return "WiFi";
+                    return "LAN";
+                }
+            }
+        }
+        catch { }
+        return "LAN";
+    }
+
+    private static bool IsInSameSubnet(System.Net.IPAddress a, System.Net.IPAddress b, System.Net.IPAddress mask)
+    {
+        var ab = a.GetAddressBytes();
+        var bb = b.GetAddressBytes();
+        var mb = mask.GetAddressBytes();
+        for (int i = 0; i < 4; i++)
+            if ((ab[i] & mb[i]) != (bb[i] & mb[i]))
+                return false;
+        return true;
+    }
 
     public void SetLicenseGroupKey(string groupKeyHash)
     {
@@ -1499,7 +1558,7 @@ public sealed class ScanBridgeService : IDisposable
     private void PublishConnectedDevices()
     {
         var snapshot = _connectedDevices.Values
-            .Select(s => new ConnectedDeviceInfo(s.DeviceName, s.HasScanned))
+            .Select(s => new ConnectedDeviceInfo(s.DeviceName, s.HasScanned, s.LinkKind))
             .ToList();
 
         ConnectedDevicesChanged?.Invoke(this, new ConnectedDevicesChangedEventArgs(snapshot));
