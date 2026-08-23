@@ -110,6 +110,7 @@ nQIDAQAB
     private readonly Dictionary<string, string> _deviceAliases = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ConnectedDeviceInfo> _lastConnectedDevices = new();
     private bool _usbInternetTipShown;
+    private Services.AdbUsbBridge? _adbBridge;
     private string _editingDeviceOriginalName = string.Empty;
     private TtTeckHistoryRow? _pendingRetryTtTeckRow;
     private TtTeckHistoryRow? _pendingRegistrationTtTeckRow;
@@ -471,6 +472,31 @@ nQIDAQAB
             Dispatcher.BeginInvoke(new Action(OnLanIpChanged), System.Windows.Threading.DispatcherPriority.Background);
         };
         _service.ConnectedDevicesChanged += (_, args) => UpdateDeviceRows(args.Devices);
+
+        // پل ADB: اتصال صفر-ضربه‌ی گوشی با کابل (بدون Tethering) — adb reverse روی پورت 5050
+        _adbBridge = new Services.AdbUsbBridge();
+        _adbBridge.StatusTip += status =>
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                switch (status)
+                {
+                    case "UNAUTHORIZED":
+                        ShowStyledMessage(
+                            "تأیید روی گوشی لازم است",
+                            "گوشی با کابل وصل شده ولی «USB Debugging» هنوز تأیید نشده. روی صفحه‌ی گوشی پیام «Allow USB debugging?» را با زدن تیک Always allow و OK تأیید کنید.",
+                            false);
+                        break;
+                    case "REVERSE_ON":
+                        ShowStyledMessage(
+                            "اتصال سریع کابل فعال شد ⚡",
+                            "گوشی تأیید شد. از این به بعد اپ گوشی با «اتصال با کابل USB» بدون هیچ تنظیمی، فقط با وصل کردن کابل متصل می‌شود.",
+                            false);
+                        break;
+                }
+            }));
+        };
+        _adbBridge.Start();
 
         _service.UnexpectedDisconnection += (_, _) =>
         {

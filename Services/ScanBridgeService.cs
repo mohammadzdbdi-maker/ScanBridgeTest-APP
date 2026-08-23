@@ -349,6 +349,10 @@ public sealed class ScanBridgeService : IDisposable
     {
         try
         {
+            // اتصال از طریق ADB reverse همیشه از 127.0.0.1 می‌آید — یعنی کابل
+            if (clientIp == "127.0.0.1" || clientIp == "::1")
+                return "USB";
+
             if (!System.Net.IPAddress.TryParse(clientIp, out var ip))
                 return "LAN";
 

@@ -41,6 +41,10 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
+  <None Include="adb\**">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+  </None>
   <None Include="Support\**">
     <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
