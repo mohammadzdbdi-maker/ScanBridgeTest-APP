@@ -591,6 +591,45 @@ public sealed class ScanBridgeService : IDisposable
             };
             byte[] bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(announce));
             await _discoveryUdp.SendAsync(bytes, bytes.Length, new IPEndPoint(IPAddress.Broadcast, DiscoveryPort));
+
+            // علاوه بر broadcast عمومی، به آدرس broadcast «هدایت‌شده‌ی هر کارت شبکه» هم فرستاده
+            // می‌شود تا دستگاه‌هایی که فقط از طریق USB Tethering یا Bluetooth PAN به این سیستم
+            // وصل‌اند هم اعلام حضور را دریافت کنند (broadcast عمومی 255.255.255.255 در ویندوز
+            // معمولاً فقط از آداپتورِ مسیر پیش‌فرض بیرون می‌رود، نه همه‌ی آداپتورها).
+            try
+            {
+                foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up)
+                        continue;
+
+                    foreach (var uni in ni.GetIPProperties().UnicastAddresses)
+                    {
+                        if (uni.Address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+                            continue;
+
+                        var mask = uni.IPv4Mask;
+                        if (mask == null)
+                            continue;
+
+                        var ipBytes = uni.Address.GetAddressBytes();
+                        var maskBytes = mask.GetAddressBytes();
+                        var bcastBytes = new byte[4];
+                        for (int i = 0; i < 4; i++)
+                            bcastBytes[i] = (byte)(ipBytes[i] | (maskBytes[i] ^ 255));
+
+                        var directed = new IPAddress(bcastBytes);
+                        if (directed.Equals(IPAddress.Broadcast))
+                            continue;
+
+                        await _discoveryUdp.SendAsync(bytes, bytes.Length, new IPEndPoint(directed, DiscoveryPort));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[{DateTime.UtcNow:O}] Per-adapter announce broadcast error: {ex.Message}");
+            }
         }
         // شکست در ارسال UDP broadcast (مثلاً به‌خاطر فایروال یا قطع موقت آداپتور شبکه) قبلاً کاملاً
         // بی‌صدا بود؛ یعنی وقتی یک سیستم دیگر توسط بقیه دیده نمی‌شد، هیچ سرنخی در لاگ نبود که آیا
