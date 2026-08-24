@@ -570,6 +570,16 @@
                             </Border>
                         </Grid>
 
+                        <!-- استعلام قیمت فرآورده — زیر دکمه‌ی «تاریخ نزدیک» در پنل کاربری -->
+                        <Button x:Name="PriceLookupPanelButton"
+                                Click="PriceLookupPanelButton_Click"
+                                Style="{StaticResource RoundedButtonStyle}"
+                                Height="60"
+                                Margin="0,8"
+                                Background="#F59E0B"
+                                FontSize="18"
+                                Content="💰 استعلام قیمت" />
+
                         <!-- باکس پیشرفت دانلود بروزرسانی - قبلاً یک پنجره‌ی جدا (DownloadProgressWindow) بود
                              که موقعیتش با محاسبه‌ی دستی Left/Top هیچ‌وقت درست از آب در نمی‌آمد (کاربر چند بار
                              گزارش داد «میره پایین»). به‌جایش این یک Border معمولی است، درست به‌عنوان فرزند
@@ -1076,6 +1086,7 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
@@ -1110,7 +1121,33 @@
                                 VerticalAlignment="Top" />
                     </Grid>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <Grid Grid.Row="1" Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="PriceLookupInput"
+                                 Height="40"
+                                 FontSize="14"
+                                 FlowDirection="LeftToRight"
+                                 VerticalContentAlignment="Center"
+                                 Padding="8,0"
+                                 KeyDown="PriceLookupInput_KeyDown"
+                                 ToolTip="بارکد را اسکن کنید یا نام فرآورده را بنویسید" />
+                        <Button x:Name="PriceLookupSearchButton"
+                                Grid.Column="1"
+                                Content="جست‌وجو"
+                                Click="PriceLookupSearchButton_Click"
+                                Style="{StaticResource RoundedButtonStyle}"
+                                Background="#F59E0B"
+                                Foreground="White"
+                                FontWeight="Bold"
+                                Height="40"
+                                Margin="10,0,0,0"
+                                Padding="18,0" />
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
                         <StackPanel>
                             <!-- وضعیت: در حال جست‌وجو / خطا -->
                             <TextBlock x:Name="PriceLookupStatusText"
@@ -1750,7 +1787,18 @@
                                                     Orientation="Horizontal"
                                                     VerticalAlignment="Center"
                                                     HorizontalAlignment="Left">
-                                            <Button Content="{Binding RegistrationButtonText}"
+<Button Content="قیمت"
+                                                    Click="TtTeckHistoryPriceButton_Click"
+                                                    Tag="{Binding}"
+                                                    Style="{StaticResource RoundedButtonStyle}"
+                                                    Background="#F59E0B"
+                                                    FontSize="12"
+                                                    Padding="12,6"
+                                                    Width="62"
+                                                    Height="34"
+                                                    Margin="0,0,8,0" />
+
+                                                                                        <Button Content="{Binding RegistrationButtonText}"
                                                     Click="OpenTtTeckRegistrationButton_Click"
                                                     Tag="{Binding}"
                                                     Style="{StaticResource RoundedButtonStyle}"
@@ -2093,17 +2141,7 @@
                                 <StackPanel>
                                     <TextBlock x:Name="TtTeckRegistrationProductLabel" Text="محصول انتخاب‌شده" FontSize="15" FontWeight="Bold" Foreground="#1A237E" Margin="0,0,0,12" />
                                     <TextBlock x:Name="TtTeckRegistrationProductText" Text="" FontSize="16" FontWeight="SemiBold" Foreground="#111827" TextWrapping="Wrap" Margin="0,0,0,12" />
-                                    <Button x:Name="TtTeckPriceButton"
-                                            Content="💰 قیمت فرآورده"
-                                            Click="TtTeckPriceButton_Click"
-                                            Style="{StaticResource RoundedButtonStyle}"
-                                            Background="#F59E0B"
-                                            Foreground="White"
-                                            FontSize="14"
-                                            FontWeight="Bold"
-                                            Height="40"
-                                            Margin="0,0,0,12"
-                                            HorizontalAlignment="Right" />
+
                                     <Border Background="White" CornerRadius="12" Padding="10" BorderBrush="#E5E7EB" BorderThickness="1">
                                         <TextBlock x:Name="TtTeckRegistrationBarcodeText" Text="" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" />
                                     </Border>
@@ -2479,7 +2517,18 @@
                                                     Orientation="Horizontal"
                                                     VerticalAlignment="Center"
                                                     HorizontalAlignment="Left">
-                                            <Button Content="{Binding RegistrationButtonText}"
+<Button Content="قیمت"
+                                                    Click="TtTeckHistoryPriceButton_Click"
+                                                    Tag="{Binding}"
+                                                    Style="{StaticResource RoundedButtonStyle}"
+                                                    Background="#F59E0B"
+                                                    FontSize="12"
+                                                    Padding="12,6"
+                                                    Width="62"
+                                                    Height="34"
+                                                    Margin="0,0,8,0" />
+
+                                                                                        <Button Content="{Binding RegistrationButtonText}"
                                                     Click="OpenTtTeckRegistrationButton_Click"
                                                     Tag="{Binding}"
                                                     Style="{StaticResource RoundedButtonStyle}"
@@ -3887,49 +3936,6 @@
                                 </Grid>
                             </Border>
                         </Grid>
-
-                        <!-- استعلام قیمت فرآورده از تی‌تک -->
-                        <Border Background="#FEF9C3"
-                                CornerRadius="14"
-                                Padding="14"
-                                Margin="0,0,0,16">
-                            <StackPanel>
-                                <TextBlock Text="💰 استعلام قیمت فرآورده"
-                                           FontSize="14"
-                                           FontWeight="Bold"
-                                           Foreground="#854D0E"
-                                           Margin="0,0,0,4" />
-                                <TextBlock Text="بارکد را اسکن کنید یا نام فرآورده را بنویسید و جست‌وجو بزنید"
-                                           FontSize="11"
-                                           Foreground="#4B5563"
-                                           TextWrapping="Wrap"
-                                           Margin="0,0,0,10" />
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox x:Name="PriceLookupInput"
-                                             Height="40"
-                                             FontSize="14"
-                                             FlowDirection="LeftToRight"
-                                             VerticalContentAlignment="Center"
-                                             Padding="8,0"
-                                             KeyDown="PriceLookupInput_KeyDown" />
-                                    <Button x:Name="PriceLookupSearchButton"
-                                            Grid.Column="1"
-                                            Content="جست‌وجو"
-                                            Click="PriceLookupSearchButton_Click"
-                                            Style="{StaticResource RoundedButtonStyle}"
-                                            Background="#F59E0B"
-                                            Foreground="White"
-                                            FontWeight="Bold"
-                                            Height="40"
-                                            Margin="10,0,0,0"
-                                            Padding="18,0" />
-                                </Grid>
-                            </StackPanel>
-                        </Border>
 
                         <!-- رفع تداخل اینترنت در اتصال USB (اینترنت جانبی) -->
                         <Border Background="#FFF7ED"

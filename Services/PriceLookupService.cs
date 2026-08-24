@@ -190,12 +190,6 @@ public sealed class PriceLookupService
 
             result.ConsumerPricePerUnit = GetDecimal(first, "ConsumerPrice", "consumerPrice");
             decimal pack = GetDecimal(first, "PackageCount", "packageCount", "PackCount");
-            if (result.ConsumerPricePerUnit > 0)
-            {
-                // طبق درخواست کاربر: قیمت مصرف‌کننده = تعداد در بسته × قیمت هر واحد (به ریال)
-                result.TotalPriceRial = pack > 0 ? result.ConsumerPricePerUnit * pack : result.ConsumerPricePerUnit;
-            }
-
             // نوع فرآورده باید «زیرفرآورده دارویی» باشد؛ در غیر این صورت قیمت استنادی ندارد
             string normalized = NormalizePersian(result.ProductType);
             bool isDrugSub = normalized.Contains(NormalizePersian("زیرفرآورده دارویی"))

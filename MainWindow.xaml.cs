@@ -11855,6 +11855,7 @@ nQIDAQAB
         PriceLookupNotDrugWarning.Visibility = Visibility.Collapsed;
         PriceLookupOverlay.Visibility = Visibility.Visible;
         MainContent.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 18 };
+        PriceLookupInput.Focus();
     }
 
     private void ClosePriceLookup()
@@ -11865,19 +11866,26 @@ nQIDAQAB
 
     private void PriceLookupCloseButton_Click(object sender, RoutedEventArgs e) => ClosePriceLookup();
 
-    /// <summary>دکمه‌ی زرد «قیمت فرآورده» داخل پنجره‌ی ثبت تی‌تک — بارکد همین فرآورده را استعلام می‌کند.</summary>
-    private async void TtTeckPriceButton_Click(object sender, RoutedEventArgs e)
+    /// <summary>دکمه‌ی «💰 استعلام قیمت» در پنل کاربری — پنجره را با کادر ورود باز می‌کند.</summary>
+    private void PriceLookupPanelButton_Click(object sender, RoutedEventArgs e)
     {
-        string? barcode = _pendingRegistrationTtTeckRow?.Barcode
-                          ?? TtTeckRegistrationBarcodeText?.Text?.Trim();
-        if (string.IsNullOrWhiteSpace(barcode))
+        OpenPriceLookup("بارکد را اسکن کنید یا نام فرآورده را بنویسید");
+        PriceLookupInput.Text = "";
+        PriceLookupInput.Focus();
+    }
+
+    /// <summary>دکمه‌ی زرد «قیمت» کنار «ثبت در تی‌تک» در ردیف‌های تاریخچه تی‌تک.</summary>
+    private async void TtTeckHistoryPriceButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.Button btn && btn.Tag is TtTeckHistoryRow row && !string.IsNullOrWhiteSpace(row.Barcode))
         {
-            ShowStyledMessage("بارکدی نیست", "اول یک فرآورده را اسکن کنید تا قیمتش را استعلام کنم.", true);
+            OpenPriceLookup("بارکد: " + row.Barcode);
+            PriceLookupInput.Text = row.Barcode;
+            await RunPriceLookupAsync(row.Barcode, isFromScan: true);
             return;
         }
 
-        OpenPriceLookup("بارکد: " + barcode);
-        await RunPriceLookupAsync(barcode, isFromScan: true);
+        ShowStyledMessage("بارکدی نیست", "برای این ردیف بارکدی ثبت نشده است.", true);
     }
 
     private async void PriceLookupSearchButton_Click(object sender, RoutedEventArgs e)
