@@ -1062,6 +1062,131 @@
              ShowUpdateConfirmOverlayAsync در MainWindow.xaml.cs که با TaskCompletionSource منتظر
              کلیک کاربر می‌ماند. Panel.ZIndex بالا دارد تا حتی وقتی MessagesOverlay هم باز است، بالاتر
              دیده شود. -->
+        <Grid x:Name="PriceLookupOverlay"
+              Panel.ZIndex="400"
+              Background="#80000000"
+              Visibility="Collapsed">
+            <Border Background="White"
+                    CornerRadius="24"
+                    Padding="24"
+                    Width="620"
+                    MaxHeight="720"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock x:Name="PriceLookupTitleText"
+                                       Text="💰 استعلام قیمت فرآورده"
+                                       FontSize="20"
+                                       FontWeight="Bold"
+                                       Foreground="#854D0E" />
+                            <TextBlock x:Name="PriceLookupSubtitleText"
+                                       Text=""
+                                       FontSize="12"
+                                       Foreground="#6B7280"
+                                       TextWrapping="Wrap"
+                                       Margin="0,4,0,0" />
+                        </StackPanel>
+                        <Button x:Name="PriceLookupCloseButton"
+                                Grid.Column="1"
+                                Content="✕"
+                                Click="PriceLookupCloseButton_Click"
+                                Style="{StaticResource RoundedButtonStyle}"
+                                Background="#F3F4F6"
+                                Foreground="#374151"
+                                Width="36"
+                                Height="36"
+                                Padding="0"
+                                VerticalAlignment="Top" />
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <!-- وضعیت: در حال جست‌وجو / خطا -->
+                            <TextBlock x:Name="PriceLookupStatusText"
+                                       Text=""
+                                       FontSize="13"
+                                       Foreground="#6B7280"
+                                       TextWrapping="Wrap"
+                                       Visibility="Collapsed"
+                                       Margin="0,0,0,10" />
+
+                            <!-- لیست انتخاب فرآورده (جست‌وجوی نامی) -->
+                            <StackPanel x:Name="PriceLookupResultsList" Visibility="Collapsed" />
+
+                            <!-- جزئیات و قیمت -->
+                            <StackPanel x:Name="PriceLookupDetailsPanel" Visibility="Collapsed">
+                                <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Padding="12" Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="نام فارسی" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                                        <TextBlock x:Name="PriceLookupFaNameText" Text="-" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" TextWrapping="Wrap" Margin="2,0,0,8" />
+                                        <TextBlock Text="نام انگلیسی" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                                        <TextBlock x:Name="PriceLookupEnNameText" Text="-" FontSize="14" Foreground="#0F172A" TextWrapping="Wrap" Margin="2,0,0,8" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="16" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="کد ژنریک" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                                                <TextBlock x:Name="PriceLookupGenericCodeText" Text="-" FontSize="14" Foreground="#0F172A" FlowDirection="LeftToRight" Margin="2,0,0,8" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="تعداد در بسته" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                                                <TextBlock x:Name="PriceLookupPackageCountText" Text="-" FontSize="14" Foreground="#0F172A" FlowDirection="LeftToRight" Margin="2,0,0,8" />
+                                            </StackPanel>
+                                        </Grid>
+                                        <TextBlock Text="نام فارسی مالک برند" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                                        <TextBlock x:Name="PriceLookupBrandOwnerText" Text="-" FontSize="14" Foreground="#0F172A" TextWrapping="Wrap" Margin="2,0,0,4" />
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- قیمت نهایی: بزرگ، سبز، ریال، سه‌رقم جدا -->
+                                <Border Background="#F0FDF4" BorderBrush="#86EFAC" BorderThickness="1.5" CornerRadius="14" Padding="14" Margin="0,0,0,8">
+                                    <StackPanel HorizontalAlignment="Center">
+                                        <TextBlock Text="قیمت مصرف‌کننده (کل بسته)" FontSize="12" FontWeight="Bold" Foreground="#15803D" HorizontalAlignment="Center" Margin="0,0,0,4" />
+                                        <TextBlock x:Name="PriceLookupPriceText"
+                                                   Text="-"
+                                                   FontSize="30"
+                                                   FontWeight="ExtraBold"
+                                                   Foreground="#16A34A"
+                                                   FlowDirection="LeftToRight"
+                                                   HorizontalAlignment="Center" />
+                                        <TextBlock Text="ریال" FontSize="13" FontWeight="Bold" Foreground="#15803D" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- هشدار: فرآورده در زیرگروه دارویی نیست -->
+                                <Border x:Name="PriceLookupNotDrugWarning"
+                                        Background="#FEF2F2"
+                                        BorderBrush="#FCA5A5"
+                                        BorderThickness="1"
+                                        CornerRadius="14"
+                                        Padding="12"
+                                        Visibility="Collapsed">
+                                    <TextBlock Text="⚠️ این محصول در زیرگروه دارویی نیست و قیمت رسمی ندارد؛ برای استعلام قیمت به سایت‌های معتبر یا فاکتور دارویی استناد کنید."
+                                               FontSize="13"
+                                               Foreground="#B91C1C"
+                                               TextWrapping="Wrap" />
+                                </Border>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
         <Grid x:Name="UpdateConfirmOverlay"
               Background="#80000000"
               Visibility="Collapsed"
@@ -1968,6 +2093,17 @@
                                 <StackPanel>
                                     <TextBlock x:Name="TtTeckRegistrationProductLabel" Text="محصول انتخاب‌شده" FontSize="15" FontWeight="Bold" Foreground="#1A237E" Margin="0,0,0,12" />
                                     <TextBlock x:Name="TtTeckRegistrationProductText" Text="" FontSize="16" FontWeight="SemiBold" Foreground="#111827" TextWrapping="Wrap" Margin="0,0,0,12" />
+                                    <Button x:Name="TtTeckPriceButton"
+                                            Content="💰 قیمت فرآورده"
+                                            Click="TtTeckPriceButton_Click"
+                                            Style="{StaticResource RoundedButtonStyle}"
+                                            Background="#F59E0B"
+                                            Foreground="White"
+                                            FontSize="14"
+                                            FontWeight="Bold"
+                                            Height="40"
+                                            Margin="0,0,0,12"
+                                            HorizontalAlignment="Right" />
                                     <Border Background="White" CornerRadius="12" Padding="10" BorderBrush="#E5E7EB" BorderThickness="1">
                                         <TextBlock x:Name="TtTeckRegistrationBarcodeText" Text="" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" />
                                     </Border>
@@ -3751,6 +3887,49 @@
                                 </Grid>
                             </Border>
                         </Grid>
+
+                        <!-- استعلام قیمت فرآورده از تی‌تک -->
+                        <Border Background="#FEF9C3"
+                                CornerRadius="14"
+                                Padding="14"
+                                Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="💰 استعلام قیمت فرآورده"
+                                           FontSize="14"
+                                           FontWeight="Bold"
+                                           Foreground="#854D0E"
+                                           Margin="0,0,0,4" />
+                                <TextBlock Text="بارکد را اسکن کنید یا نام فرآورده را بنویسید و جست‌وجو بزنید"
+                                           FontSize="11"
+                                           Foreground="#4B5563"
+                                           TextWrapping="Wrap"
+                                           Margin="0,0,0,10" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="PriceLookupInput"
+                                             Height="40"
+                                             FontSize="14"
+                                             FlowDirection="LeftToRight"
+                                             VerticalContentAlignment="Center"
+                                             Padding="8,0"
+                                             KeyDown="PriceLookupInput_KeyDown" />
+                                    <Button x:Name="PriceLookupSearchButton"
+                                            Grid.Column="1"
+                                            Content="جست‌وجو"
+                                            Click="PriceLookupSearchButton_Click"
+                                            Style="{StaticResource RoundedButtonStyle}"
+                                            Background="#F59E0B"
+                                            Foreground="White"
+                                            FontWeight="Bold"
+                                            Height="40"
+                                            Margin="10,0,0,0"
+                                            Padding="18,0" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
 
                         <!-- رفع تداخل اینترنت در اتصال USB (اینترنت جانبی) -->
                         <Border Background="#FFF7ED"
