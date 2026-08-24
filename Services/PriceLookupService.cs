@@ -138,6 +138,36 @@ public sealed class PriceLookupService
             .ToList();
     }
 
+    /// <summary>
+    /// لیست کومپکت تی‌تک بعضی وقت‌ها فقط ProductId و Irc دارد (بدون اسم). اگر اسمی نیامده بود،
+    /// برای حداکثر ۱۲ فرآورده‌ی اول، جزئیات را موازی می‌گیریم و اسم فارسی/مالک برند را پر می‌کنیم.
+    /// </summary>
+    public async Task<List<ProductSummary>> EnrichSummariesWithDetailsAsync(List<ProductSummary> items, string? token = null)
+    {
+        var needs = items.Take(12).Where(i => i.Title.StartsWith("فرآورده ")).ToList();
+        if (needs.Count == 0)
+            return items;
+
+        var tasks = needs.Select(async it =>
+        {
+            var d = await GetProductDetailsAsync(it.ProductId, token);
+            if (d.Success)
+            {
+                string fa = d.FaName;
+                if (string.IsNullOrWhiteSpace(fa)) fa = d.EnName;
+                if (!string.IsNullOrWhiteSpace(fa))
+                    it.Title = fa;
+                if (!string.IsNullOrWhiteSpace(d.BrandOwner))
+                    it.Subtitle = string.IsNullOrWhiteSpace(it.Subtitle)
+                        ? d.BrandOwner
+                        : it.Subtitle + " | " + d.BrandOwner;
+            }
+        }).ToList();
+
+        try { await Task.WhenAll(tasks); } catch { }
+        return items;
+    }
+
     /// <summary>جزئیات و قیمت فرآورده با ProductId</summary>
     public async Task<PriceResult> GetProductDetailsAsync(long productId, string? token = null)
     {
@@ -190,10 +220,10 @@ public sealed class PriceLookupService
 
             result.ConsumerPricePerUnit = GetDecimal(first, "ConsumerPrice", "consumerPrice");
             decimal pack = GetDecimal(first, "PackageCount", "packageCount", "PackCount");
-            // نوع فرآورده باید «زیرفرآورده دارویی» باشد؛ در غیر این صورت قیمت استنادی ندارد
+            // نوع فرآورده باید «زیر فرآورده دارو(یی)» باشد؛ مقدار واقعی تی‌تک «زیر فرآورده دارو»
+            // (بدون ی پایانی) است، پس با پیشوند نرمال‌شده‌ی «زیرفرآوردهدارو» چک می‌کنیم.
             string normalized = NormalizePersian(result.ProductType);
-            bool isDrugSub = normalized.Contains(NormalizePersian("زیرفرآورده دارویی"))
-                          || normalized.Contains(NormalizePersian("زیر فرآورده دارویی"));
+            bool isDrugSub = normalized.Contains(NormalizePersian("زیر فرآورده دارو"));
             result.FoundButNotDrugSubgroup = !isDrugSub && !string.IsNullOrWhiteSpace(result.ProductType);
 
             return result;
@@ -248,8 +278,8 @@ public sealed class PriceLookupService
                 if (id <= 0)
                     continue;
 
-                string fa = GetString(item, "FaBrandName", "faBrandName", "PersianName", "persianName", "nameFa");
-                string en = GetString(item, "EnBrandName", "enBrandName", "EnglishName", "englishName");
+                string fa = GetString(item, "FaBrandName", "faBrandName", "PersianName", "persianName", "nameFa", "FaName", "faName", "ProductName", "productName", "Title", "title", "Name", "name", "text", "label");
+                string en = GetString(item, "EnBrandName", "enBrandName", "EnglishName", "englishName", "EnName", "enName");
                 string irc = GetString(item, "Irc", "irc");
                 string owner = GetString(item, "FaBrandOwnerName", "faBrandOwnerName");
 

@@ -11941,6 +11941,7 @@ nQIDAQAB
             {
                 PriceLookupStatusText.Text = "🔍 در حال جست‌وجوی فرآورده در تی‌تک... (تا دو صفحه نتیجه)";
                 var products = await PriceLookup.SearchProductsAsync(query, PriceLookupToken);
+                products = await PriceLookup.EnrichSummariesWithDetailsAsync(products, PriceLookupToken);
                 if (products.Count == 0)
                 {
                     PriceLookupStatusText.Text = "❌ فرآورده‌ای با این نام پیدا نشد. املای نام را بررسی کنید.";
