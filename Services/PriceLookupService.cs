@@ -181,7 +181,9 @@ public sealed class PriceLookupService
             if (!resp.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
                 return new PriceResult { Success = false, Message = $"❌ خطای سرور تی‌تک: {resp.StatusCode}" };
 
-            JsonElement first;
+            // همه‌ی خواندن‌ها باید داخل using انجام شود؛ JsonElement بعد از Dispose سند والد
+            // «Cannot access a disposed object» می‌دهد (نتیجه‌ی محاسبه از قبل داخل سند آماده می‌شود).
+            PriceResult result;
             try
             {
                 using var doc = JsonDocument.Parse(body);
@@ -200,26 +202,29 @@ public sealed class PriceLookupService
                 if (items is null || items.Value.GetArrayLength() == 0)
                     return new PriceResult { Success = false, Message = "❌ فرآورده‌ای با این مشخصات یافت نشد" };
 
-                first = items.Value[0];
+                var first = items.Value[0];
+
+                decimal unitPrice = GetDecimal(first, "ConsumerPrice", "consumerPrice");
+                decimal pack = GetDecimal(first, "PackageCount", "packageCount", "PackCount");
+
+                result = new PriceResult
+                {
+                    Success = true,
+                    FaName = GetString(first, "FaBrandName", "faBrandName", "PersianName", "persianName", "NameFa"),
+                    EnName = GetString(first, "EnBrandName", "enBrandName", "EnglishName", "englishName", "NameEn"),
+                    GenericCode = GetString(first, "DrugGenericCode", "drugGenericCode", "GenericCode", "genericCode"),
+                    PackageCount = GetString(first, "PackageCount", "packageCount", "PackCount"),
+                    BrandOwner = GetString(first, "FaBrandOwnerName", "faBrandOwnerName", "BrandOwnerFa"),
+                    ProductType = GetString(first, "ProductType", "productType"),
+                    // طبق درخواست کاربر: قیمت مصرف‌کننده = تعداد در بسته × قیمت هر واحد (به ریال)
+                    ConsumerPricePerUnit = unitPrice,
+                    TotalPriceRial = unitPrice > 0 && pack > 0 ? unitPrice * pack : unitPrice,
+                };
             }
             catch (Exception ex)
             {
                 return new PriceResult { Success = false, Message = "❌ پاسخ نامعتبر از سرور: " + ex.Message };
             }
-
-            var result = new PriceResult
-            {
-                Success = true,
-                FaName = GetString(first, "FaBrandName", "faBrandName", "PersianName", "persianName", "NameFa"),
-                EnName = GetString(first, "EnBrandName", "enBrandName", "EnglishName", "englishName", "NameEn"),
-                GenericCode = GetString(first, "DrugGenericCode", "drugGenericCode", "GenericCode", "genericCode"),
-                PackageCount = GetString(first, "PackageCount", "packageCount", "PackCount"),
-                BrandOwner = GetString(first, "FaBrandOwnerName", "faBrandOwnerName", "BrandOwnerFa"),
-                ProductType = GetString(first, "ProductType", "productType"),
-            };
-
-            result.ConsumerPricePerUnit = GetDecimal(first, "ConsumerPrice", "consumerPrice");
-            decimal pack = GetDecimal(first, "PackageCount", "packageCount", "PackCount");
             // نوع فرآورده باید «زیر فرآورده دارو(یی)» باشد؛ مقدار واقعی تی‌تک «زیر فرآورده دارو»
             // (بدون ی پایانی) است، پس با پیشوند نرمال‌شده‌ی «زیرفرآوردهدارو» چک می‌کنیم.
             string normalized = NormalizePersian(result.ProductType);
