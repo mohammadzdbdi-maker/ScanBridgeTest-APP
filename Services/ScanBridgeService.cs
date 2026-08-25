@@ -1943,14 +1943,3 @@ public static class KeyboardInjector
         return builder.ToString();
     }
 }
-                    builder.Append('{').Append(c).Append('}');
-                    break;
-                default:
-                    builder.Append(c);
-                    break;
-            }
-        }
-
-        return builder.ToString();
-    }
-}

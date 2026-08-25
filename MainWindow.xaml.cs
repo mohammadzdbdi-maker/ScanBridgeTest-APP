@@ -13896,7 +13896,7 @@ private void SaveTtTeckSettings()
             if (myGeneration != _scanToastGeneration)
                 return;
 
-            var fadeOut = new Doubion(TimeSpan.FromMilliseconds(250)));
+            var fadeOut = new DoubleAnimation(1, 0, new Duration(TimeSpan.FromMilliseconds(250)));
             fadeOut.Completed += (_, _) =>
             {
                 if (myGeneration == _scanToastGeneration)
