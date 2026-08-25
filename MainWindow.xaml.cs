@@ -12332,11 +12332,17 @@ nQIDAQAB
 
     private async Task RunProductDetailsAsync(long productId, string title)
     {
+        string previousStatus = PriceLookupStatusText.Text;
+        var previousStatusVis = PriceLookupStatusText.Visibility;
+
         PriceLookupStatusText.Visibility = Visibility.Visible;
         PriceLookupStatusText.Text = "🔍 در حال دریافت اطلاعات «" + title + "» از تی‌تک...";
-        PriceLookupResultsList.Visibility = Visibility.Collapsed;
+        // لیست را باز نگه دار تا بعد از بستن پنجره قیمت بشود مورد بعدی را زد
 
         var result = await PriceLookup.GetProductDetailsAsync(productId, PriceLookupToken);
+
+        PriceLookupStatusText.Text = previousStatus;
+        PriceLookupStatusText.Visibility = previousStatusVis;
         ShowPriceResult(result);
     }
 
@@ -12344,13 +12350,17 @@ nQIDAQAB
     {
         if (!result.Success)
         {
+            if (PriceLookupResultsList.Visibility == Visibility.Visible)
+            {
+                ShowStyledMessage("استعلام قیمت", result.Message, true);
+                return;
+            }
             PriceLookupStatusText.Visibility = Visibility.Visible;
             PriceLookupStatusText.Text = result.Message;
             return;
         }
 
         ShowPriceResultWindow(result);
-        return;
     }
 
     [System.Obsolete]
