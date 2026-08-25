@@ -239,6 +239,59 @@ public sealed class PriceLookupService
         }
     }
 
+    /// <summary>
+    /// جست‌وجوی آزاد (برای کد ژنریک یا هر عبارت): اول با compact Name؛ اگر نتیجه نداشت
+    /// با searchExp روی GetProductsForPharmacies.
+    /// </summary>
+    public async Task<List<ProductSummary>> SearchByExpressionAsync(string expr, string? token = null)
+    {
+        var viaCompact = await SearchProductsAsync(expr, token);
+        if (viaCompact.Count > 0)
+            return viaCompact;
+
+        var list = new List<ProductSummary>();
+        try
+        {
+            string url = $"{ProductsForPharmaciesUrl}?searchExp={Uri.EscapeDataString(expr)}&ProductId=&PageSize=50&PageNumber=1";
+            using var req = BuildGet(url, token);
+            using var resp = await _http.SendAsync(req);
+            string body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
+                return list;
+
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            var items = ExtractArray(root, "data", "Data", "items", "Items", "result", "Result", "list", "List")
+                        ?? (root.ValueKind == JsonValueKind.Array ? root : ExtractAnyArray(root));
+            if (items is null)
+                return list;
+
+            foreach (var item in items.Value.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
+                long id = (long)GetDecimal(item, "ProductId", "productId", "id", "Id");
+                if (id <= 0)
+                    continue;
+                string fa = GetString(item, "FaBrandName", "faBrandName", "PersianName", "persianName");
+                string en = GetString(item, "EnBrandName", "enBrandName", "EnglishName", "englishName");
+                string irc = GetString(item, "Irc", "irc");
+                string title = !string.IsNullOrWhiteSpace(fa) ? fa : (!string.IsNullOrWhiteSpace(en) ? en : "فرآورده " + id);
+                list.Add(new ProductSummary
+                {
+                    ProductId = id,
+                    Title = title,
+                    Subtitle = string.IsNullOrWhiteSpace(irc) ? "" : "IRC: " + irc,
+                });
+            }
+            return list;
+        }
+        catch
+        {
+            return list;
+        }
+    }
+
     /// <summary>مسیر کامل بارکد → قیمت (کاتالوگ + انتخاب اولین فرآورده)</summary>
     public async Task<PriceResult> LookupByBarcodeAsync(string barcode, string? token = null)
     {

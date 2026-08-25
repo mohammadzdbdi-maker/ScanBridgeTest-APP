@@ -47,6 +47,9 @@ public sealed class ConnectedDevicesChangedEventArgs : EventArgs
 public sealed class ScanBridgeService : IDisposable
 {
     public const int Port = 5050;
+
+    // موقتاً تایپ اسکن به‌صورت کیبورد را قطع می‌کند (موقع باز بودن پنجره‌ی استعلام قیمت)
+    public volatile bool SuppressKeyboardInjection;
     // پورت جداگانه‌ای که فقط بین خودِ سیستم‌های دسکتاپ (نه گوشی‌ها) برای هماهنگ‌سازی تنظیمات
     // استفاده می‌شود - عمداً از سرور اصلی گوشی‌ها (Port) جدا است تا هیچ اتصال بین دو دسکتاپ در
     // لیست «دستگاه‌های وصل‌شده»ی گوشی‌ها ظاهر نشود.
@@ -305,7 +308,9 @@ public sealed class ScanBridgeService : IDisposable
                     PublishConnectedDevices();
                 }
 
-                if (!string.IsNullOrWhiteSpace(barcode))
+                // وقتی پنجره‌ی استعلام قیمت باز است، تایپ کیبورد قطع می‌شود تا بارکد
+                // به‌جای یک‌بار، دو بار (UI + تایپ) داخل کادر ننشیند.
+                if (!string.IsNullOrWhiteSpace(barcode) && !SuppressKeyboardInjection)
                 {
                     _keyboardQueue.Add((socket, barcode, deviceName));
                 }

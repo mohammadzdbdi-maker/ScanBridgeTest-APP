@@ -419,12 +419,16 @@ nQIDAQAB
                 }
 
                 // اگر پنجره‌ی استعلام قیمت باز است، اسکن مستقیماً همانجا جست‌وجو می‌شود
+                // (تایپ کیبورد هم با SuppressKeyboardInjection قطع شده تا بارکد دو بار ننشیند)
                 bool priceLookupActive = await Dispatcher.InvokeAsync(() => PriceLookupOverlay.Visibility == Visibility.Visible);
                 if (priceLookupActive)
                 {
                     await Dispatcher.InvokeAsync(() =>
                     {
-                        PriceLookupInput.Text = incomingBarcode;
+                        PriceNameInput.Text = "";
+                        PriceGenericInput.Text = "";
+                        PriceBarcodeInput.Text = incomingBarcode;
+                        _priceActiveField = "barcode";
                         _ = RunPriceLookupAsync(incomingBarcode, isFromScan: true);
                     });
                     return;
@@ -11855,13 +11859,16 @@ nQIDAQAB
         PriceLookupNotDrugWarning.Visibility = Visibility.Collapsed;
         PriceLookupOverlay.Visibility = Visibility.Visible;
         MainContent.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 18 };
-        PriceLookupInput.Focus();
+        // تا وقتی این پنجره باز است، اسکن‌ها دیگر به‌صورت تایپ کیبورد تزریق نمی‌شوند
+        if (_service != null) _service.SuppressKeyboardInjection = true;
+        PriceNameInput.Focus();
     }
 
     private void ClosePriceLookup()
     {
         PriceLookupOverlay.Visibility = Visibility.Collapsed;
         MainContent.Effect = null;
+        if (_service != null) _service.SuppressKeyboardInjection = false;
     }
 
     private void PriceLookupCloseButton_Click(object sender, RoutedEventArgs e) => ClosePriceLookup();
@@ -11869,9 +11876,8 @@ nQIDAQAB
     /// <summary>دکمه‌ی «💰 استعلام قیمت» در پنل کاربری — پنجره را با کادر ورود باز می‌کند.</summary>
     private void PriceLookupPanelButton_Click(object sender, RoutedEventArgs e)
     {
-        OpenPriceLookup("بارکد را اسکن کنید یا نام فرآورده را بنویسید");
-        PriceLookupInput.Text = "";
-        PriceLookupInput.Focus();
+        OpenPriceLookup("بر اساس نام، بارکد یا کد ژنریک جست‌وجو کنید");
+        PriceResetButton_Click(sender, e);
     }
 
     /// <summary>دکمه‌ی زرد «قیمت» کنار «ثبت در تی‌تک» در ردیف‌های تاریخچه تی‌تک.</summary>
@@ -11880,7 +11886,8 @@ nQIDAQAB
         if (sender is System.Windows.Controls.Button btn && btn.Tag is TtTeckHistoryRow row && !string.IsNullOrWhiteSpace(row.Barcode))
         {
             OpenPriceLookup("بارکد: " + row.Barcode);
-            PriceLookupInput.Text = row.Barcode;
+            PriceBarcodeInput.Text = row.Barcode;
+            _priceActiveField = "barcode";
             await RunPriceLookupAsync(row.Barcode, isFromScan: true);
             return;
         }
@@ -11888,25 +11895,147 @@ nQIDAQAB
         ShowStyledMessage("بارکدی نیست", "برای این ردیف بارکدی ثبت نشده است.", true);
     }
 
-    private async void PriceLookupSearchButton_Click(object sender, RoutedEventArgs e)
+    private string _priceActiveField = "name";
+
+    private void PriceInput_GotFocus(object sender, RoutedEventArgs e)
     {
-        string query = PriceLookupInput.Text.Trim();
+        if (sender is System.Windows.Controls.TextBox tb && tb.Tag is string tag)
+        {
+            _priceActiveField = tag;
+            if (tb.Parent is Border b)
+                b.BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#2563EB");
+        }
+    }
+
+    private void PriceInput_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.TextBox tb && tb.Parent is Border b)
+            b.BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#CBD5E1");
+    }
+
+    private async void PriceInput_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            e.Handled = true;
+            ClosePriceLookup();
+            return;
+        }
+        if (e.Key == System.Windows.Input.Key.Enter)
+        {
+            e.Handled = true;
+            await RunActivePriceSearchAsync();
+        }
+    }
+
+    /// <summary>جست‌وجو بر اساس کادر فعال (نام / بارکد / کد ژنریک)</summary>
+    private async Task RunActivePriceSearchAsync()
+    {
+        string query;
+        string mode = _priceActiveField;
+
+        if (mode == "barcode") query = PriceBarcodeInput.Text.Trim();
+        else if (mode == "generic") query = PriceGenericInput.Text.Trim();
+        else { query = PriceNameInput.Text.Trim(); mode = "name"; }
+
         if (query.Length < 2)
         {
-            ShowStyledMessage("کم است", "بارکد را اسکن کنید یا حداقل دو حرف از نام فرآورده را بنویسید.", true);
+            ShowStyledMessage("کم است", "حداقل دو حرف وارد کنید یا بارکد را اسکن کنید.", true);
+            return;
+        }
+
+        if (mode == "barcode")
+        {
+            await RunPriceLookupAsync(query, isFromScan: true);
+            return;
+        }
+
+        if (mode == "generic")
+        {
+            PriceLookupStatusText.Visibility = Visibility.Visible;
+            PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
+            PriceLookupResultsList.Visibility = Visibility.Collapsed;
+            PriceLookupStatusText.Text = "🔍 در حال جست‌وجوی کد ژنریک در تی‌تک...";
+            var products = await PriceLookup.SearchByExpressionAsync(query, PriceLookupToken);
+            products = await PriceLookup.EnrichSummariesWithDetailsAsync(products, PriceLookupToken);
+            await ShowProductSelectionListAsync(products);
             return;
         }
 
         await RunPriceLookupAsync(query, isFromScan: false);
     }
 
-    private async void PriceLookupInput_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    /// <summary>نمایش لیست مرتب‌شده‌ی فرآورده‌ها برای انتخاب — ترتیب: اسم (که شکل و دوز را هم دارد) و IRC</summary>
+    private async Task ShowProductSelectionListAsync(List<Services.PriceLookupService.ProductSummary> products)
     {
-        if (e.Key == System.Windows.Input.Key.Enter)
+        if (products.Count == 0)
         {
-            e.Handled = true;
-            await RunPriceLookupAsync(PriceLookupInput.Text.Trim(), isFromScan: false);
+            PriceLookupStatusText.Visibility = Visibility.Visible;
+            PriceLookupStatusText.Text = "❌ فرآورده‌ای پیدا نشد. عبارت را بررسی کنید.";
+            return;
         }
+
+        if (products.Count == 1)
+        {
+            await RunProductDetailsAsync(products[0].ProductId, products[0].Title);
+            return;
+        }
+
+        // مرتب‌سازی: اول فرآورده‌های دارای اسم واقعی، بعد اسم به ترتیب الفبا
+        // (اسم تی‌تک خودش «برند + شکل دارویی + دوز» است؛ مرتب‌سازی الفبایی همه‌ی شکل‌های یک برند را کنار هم می‌گذارد)
+        var ordered = products
+            .OrderBy(p => p.Title.StartsWith("فرآورده ", StringComparison.Ordinal) ? 1 : 0)
+            .ThenBy(p => p.Title, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        PriceLookupStatusText.Text = ordered.Count + " فرآورده پیدا شد — یکی را انتخاب کنید:";
+        PriceLookupStatusText.Visibility = Visibility.Visible;
+        PriceLookupResultsList.Visibility = Visibility.Visible;
+        PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
+        PriceLookupResultsList.Children.Clear();
+
+        foreach (var p in ordered)
+        {
+            var btn = new System.Windows.Controls.Button
+            {
+                Content = string.IsNullOrWhiteSpace(p.Subtitle) ? p.Title : p.Title + "   |   " + p.Subtitle,
+                Style = (Style)FindResource("RoundedButtonStyle"),
+                Background = System.Windows.Media.Brushes.White,
+                Foreground = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#0F172A"),
+                FontSize = 12.5,
+                Height = 38,
+                Margin = new Thickness(0, 0, 0, 6),
+                HorizontalContentAlignment = System.Windows.HorizontalAlignment.Right,
+                Padding = new Thickness(12, 0, 12, 0),
+                Tag = p,
+            };
+            btn.Click += async (s, args) =>
+            {
+                if (s is System.Windows.Controls.Button b && b.Tag is Services.PriceLookupService.ProductSummary sel)
+                    await RunProductDetailsAsync(sel.ProductId, sel.Title);
+            };
+            PriceLookupResultsList.Children.Add(btn);
+        }
+    }
+
+    private async void PriceLookupSearchButton_Click(object sender, RoutedEventArgs e)
+    {
+        await RunActivePriceSearchAsync();
+    }
+
+    /// <summary>✕ جست‌وجوی جدید: همه‌ی کادرها پاک و آماده‌ی سرچ تازه</summary>
+    private void PriceResetButton_Click(object sender, RoutedEventArgs e)
+    {
+        PriceNameInput.Text = "";
+        PriceBarcodeInput.Text = "";
+        PriceGenericInput.Text = "";
+        PriceLookupStatusText.Text = "";
+        PriceLookupStatusText.Visibility = Visibility.Collapsed;
+        PriceLookupResultsList.Visibility = Visibility.Collapsed;
+        PriceLookupResultsList.Children.Clear();
+        PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
+        PriceLookupNotDrugWarning.Visibility = Visibility.Collapsed;
+        PriceNameInput.Focus();
     }
 
     private static bool IsAllDigits(string s)
@@ -11942,43 +12071,7 @@ nQIDAQAB
                 PriceLookupStatusText.Text = "🔍 در حال جست‌وجوی فرآورده در تی‌تک... (تا دو صفحه نتیجه)";
                 var products = await PriceLookup.SearchProductsAsync(query, PriceLookupToken);
                 products = await PriceLookup.EnrichSummariesWithDetailsAsync(products, PriceLookupToken);
-                if (products.Count == 0)
-                {
-                    PriceLookupStatusText.Text = "❌ فرآورده‌ای با این نام پیدا نشد. املای نام را بررسی کنید.";
-                    return;
-                }
-
-                if (products.Count == 1)
-                {
-                    await RunProductDetailsAsync(products[0].ProductId, products[0].Title);
-                    return;
-                }
-
-                PriceLookupStatusText.Text = products.Count + " فرآورده پیدا شد — یکی را انتخاب کنید:";
-                PriceLookupStatusText.Visibility = Visibility.Visible;
-                PriceLookupResultsList.Visibility = Visibility.Visible;
-                foreach (var p in products)
-                {
-                    var btn = new System.Windows.Controls.Button
-                    {
-                        Content = string.IsNullOrWhiteSpace(p.Subtitle) ? p.Title : p.Title + "   (" + p.Subtitle + ")",
-                        Style = (Style)FindResource("RoundedButtonStyle"),
-                        Background = System.Windows.Media.Brushes.White,
-                        Foreground = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#0F172A"),
-                        FontSize = 13,
-                        Height = 40,
-                        Margin = new Thickness(0, 0, 0, 8),
-                        HorizontalContentAlignment = System.Windows.HorizontalAlignment.Right,
-                        Padding = new Thickness(14, 0, 14, 0),
-                        Tag = p,
-                    };
-                    btn.Click += async (s, args) =>
-                    {
-                        if (s is System.Windows.Controls.Button b && b.Tag is Services.PriceLookupService.ProductSummary sel)
-                            await RunProductDetailsAsync(sel.ProductId, sel.Title);
-                    };
-                    PriceLookupResultsList.Children.Add(btn);
-                }
+                await ShowProductSelectionListAsync(products);
             }
         }
         catch (Exception ex)
