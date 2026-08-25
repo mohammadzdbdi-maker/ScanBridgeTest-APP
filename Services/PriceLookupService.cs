@@ -39,6 +39,10 @@ public sealed class PriceLookupService
         public long ProductId { get; set; }
         public string Title { get; set; } = "";
         public string Subtitle { get; set; } = "";
+        // اجزای تفکیک‌شده‌ی اسم برای نمایش باکس‌به‌باکس و مرتب‌سازی
+        public string Brand { get; set; } = "";
+        public string Form { get; set; } = "";
+        public string Dose { get; set; } = "";
     }
 
     public sealed class PriceResult
@@ -156,7 +160,13 @@ public sealed class PriceLookupService
                 string fa = d.FaName;
                 if (string.IsNullOrWhiteSpace(fa)) fa = d.EnName;
                 if (!string.IsNullOrWhiteSpace(fa))
+                {
                     it.Title = fa;
+                    ParseNameParts(fa, out var brand, out var form, out var dose);
+                    it.Brand = brand;
+                    it.Form = form;
+                    it.Dose = dose;
+                }
                 if (!string.IsNullOrWhiteSpace(d.BrandOwner))
                     it.Subtitle = string.IsNullOrWhiteSpace(it.Subtitle)
                         ? d.BrandOwner
@@ -240,7 +250,40 @@ public sealed class PriceLookupService
     }
 
     /// <summary>
-    /// جست‌وجوی آزاد (برای کد ژنریک یا هر عبارت): اول با compact Name؛ اگر نتیجه نداشت
+    /// جست‌وجوی کد ژنریک: مثل سایت تی‌تک، فیلتر روی «کد ژنریک». چند نام پارامتر محتمل را
+    /// به‌ترتیب امتحان می‌کنیم تا یکی جواب دهد (GenericCode، DrugGenericCode، Name=کد، searchExp).
+    /// </summary>
+    public async Task<List<ProductSummary>> SearchByGenericCodeAsync(string code, string? token = null)
+    {
+        var variants = new[]
+        {
+            $"{CompactProductsUrl}?GenericCode={Uri.EscapeDataString(code)}&PageSize=50&PageNumber=1",
+            $"{CompactProductsUrl}?DrugGenericCode={Uri.EscapeDataString(code)}&PageSize=50&PageNumber=1",
+            $"{CompactProductsUrl}?Name={Uri.EscapeDataString(code)}&PageSize=50&PageNumber=1",
+        };
+
+        foreach (var url in variants)
+        {
+            try
+            {
+                using var req = BuildGet(url, token);
+                using var resp = await _http.SendAsync(req);
+                string body = await resp.Content.ReadAsStringAsync();
+                if (!resp.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
+                    continue;
+                var list = ParseCompactList(body);
+                if (list.Count > 0)
+                    return list;
+            }
+            catch { }
+        }
+
+        // آخرین تلاش: جست‌وجوی آزاد
+        return await SearchByExpressionAsync(code, token);
+    }
+
+    /// <summary>
+    /// جست‌وجوی آزاد (برای هر عبارت): اول با compact Name؛ اگر نتیجه نداشت
     /// با searchExp روی GetProductsForPharmacies.
     /// </summary>
     public async Task<List<ProductSummary>> SearchByExpressionAsync(string expr, string? token = null)
@@ -304,6 +347,84 @@ public sealed class PriceLookupService
             return new PriceResult { Success = false, Message = "❌ فرآورده‌ای برای IRC «" + irc + "» یافت نشد" };
 
         return await GetProductDetailsAsync(products[0].ProductId, token);
+    }
+
+    // ---------- تفکیک اسم فرآورده به برند / شکل دارویی / دوز ----------
+
+    private static readonly string[] KnownForms =
+    {
+        "پیوسته رهش", "سافت ژل", "قرص", "کپسول", "شربت", "آمپول", "قطره", "پماد", "کرم", "ژل",
+        "اسپری", "سوسپانسیون", "محلول", "پودر", "شیاف", "ویال", "مایع", "انفوزیون", "تری گرم",
+        "ماندگار", "مواد مؤثره", "اشکال"
+    };
+
+    /// <summary>
+    /// اسم تی‌تک به شکل «برند + شکل دارویی + دوز» است (مثل «دپریلکس کپسول پیوسته رهش خوراکی 37.5 mg»).
+    /// این متد آن را به سه جزء تفکیک می‌کند؛ هر جزء پیدا نشود خالی می‌ماند.
+    /// </summary>
+    public static void ParseNameParts(string title, out string brand, out string form, out string dose)
+    {
+        brand = title?.Trim() ?? "";
+        form = "";
+        dose = "";
+
+        if (string.IsNullOrWhiteSpace(title))
+            return;
+
+        // دوز: عدد + واحد (آخرین تطبیق در متن)
+        var doseMatch = System.Text.RegularExpressions.Regex.Match(
+            title,
+            @"(\d+(?:[.,/]\d+)?\s*(?:mg|ml|IU|%|٪|میلی‌گرم|میلی گرم|میلی‌لیتر|میلی لیتر|واحد))",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (doseMatch.Success)
+            dose = doseMatch.Value.Trim();
+
+        // شکل دارویی: اولین واژه‌ی شکل شناخته‌شده
+        int formIdx = -1;
+        string foundForm = "";
+        foreach (var f in KnownForms)
+        {
+            int idx = title.IndexOf(f, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0 && (formIdx < 0 || idx < formIdx))
+            {
+                formIdx = idx;
+                foundForm = f;
+            }
+        }
+
+        if (formIdx < 0)
+        {
+            brand = title.Replace(dose, "").Trim();
+            return;
+        }
+
+        brand = title.Substring(0, formIdx).Trim();
+        string rest = title.Substring(formIdx);
+
+        if (!string.IsNullOrWhiteSpace(dose))
+        {
+            int doseIdx = rest.IndexOf(dose, StringComparison.OrdinalIgnoreCase);
+            if (doseIdx >= 0)
+                form = rest.Substring(0, doseIdx).Trim();
+            else
+                form = rest.Trim();
+        }
+        else
+        {
+            form = rest.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(form))
+            form = foundForm;
+    }
+
+    /// <summary>عدد دوز برای مرتب‌سازی عددی (مثلاً «37.5 mg» → 37.5)</summary>
+    public static decimal DoseValue(string dose)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(dose ?? "", @"\d+(?:[.,]\d+)?");
+        if (m.Success && decimal.TryParse(m.Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v))
+            return v;
+        return 0m;
     }
 
     // ---------- Parse helpers ----------

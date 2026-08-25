@@ -11861,6 +11861,7 @@ nQIDAQAB
         MainContent.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 18 };
         // تا وقتی این پنجره باز است، اسکن‌ها دیگر به‌صورت تایپ کیبورد تزریق نمی‌شوند
         if (_service != null) _service.SuppressKeyboardInjection = true;
+        PriceSearchInputsPanel.Visibility = Visibility.Visible;
         PriceNameInput.Focus();
     }
 
@@ -11885,14 +11886,28 @@ nQIDAQAB
     {
         if (sender is System.Windows.Controls.Button btn && btn.Tag is TtTeckHistoryRow row && !string.IsNullOrWhiteSpace(row.Barcode))
         {
+            // از این مسیر فقط نتیجه نشان داده می‌شود — بخش جست‌وجو مخفی است
             OpenPriceLookup("بارکد: " + row.Barcode);
-            PriceBarcodeInput.Text = row.Barcode;
-            _priceActiveField = "barcode";
+            PriceSearchInputsPanel.Visibility = Visibility.Collapsed;
             await RunPriceLookupAsync(row.Barcode, isFromScan: true);
             return;
         }
 
         ShowStyledMessage("بارکدی نیست", "برای این ردیف بارکدی ثبت نشده است.", true);
+    }
+
+    private void PriceLookupOverlay_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            e.Handled = true;
+            ClosePriceLookup();
+        }
+        else if (e.Key == System.Windows.Input.Key.Enter && PriceSearchInputsPanel.Visibility == Visibility.Visible)
+        {
+            e.Handled = true;
+            _ = RunActivePriceSearchAsync();
+        }
     }
 
     private string _priceActiveField = "name";
@@ -11956,7 +11971,7 @@ nQIDAQAB
             PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
             PriceLookupResultsList.Visibility = Visibility.Collapsed;
             PriceLookupStatusText.Text = "🔍 در حال جست‌وجوی کد ژنریک در تی‌تک...";
-            var products = await PriceLookup.SearchByExpressionAsync(query, PriceLookupToken);
+            var products = await PriceLookup.SearchByGenericCodeAsync(query, PriceLookupToken);
             products = await PriceLookup.EnrichSummariesWithDetailsAsync(products, PriceLookupToken);
             await ShowProductSelectionListAsync(products);
             return;
@@ -11981,11 +11996,13 @@ nQIDAQAB
             return;
         }
 
-        // مرتب‌سازی: اول فرآورده‌های دارای اسم واقعی، بعد اسم به ترتیب الفبا
-        // (اسم تی‌تک خودش «برند + شکل دارویی + دوز» است؛ مرتب‌سازی الفبایی همه‌ی شکل‌های یک برند را کنار هم می‌گذارد)
+        // مرتب‌سازی طبق درخواست: شکل دارویی → اسم دارو → دوز → IRC
         var ordered = products
             .OrderBy(p => p.Title.StartsWith("فرآورده ", StringComparison.Ordinal) ? 1 : 0)
-            .ThenBy(p => p.Title, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(p => p.Form, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(p => string.IsNullOrWhiteSpace(p.Brand) ? p.Title : p.Brand, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(p => Services.PriceLookupService.DoseValue(p.Dose))
+            .ThenBy(p => p.Subtitle, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         PriceLookupStatusText.Text = ordered.Count + " فرآورده پیدا شد — یکی را انتخاب کنید:";
@@ -11994,20 +12011,36 @@ nQIDAQAB
         PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
         PriceLookupResultsList.Children.Clear();
 
+        // ساخت ستون‌های جدول برای هر ردیف: شکل دارویی | اسم دارو | دوز | IRC — هرکدام باکس جدا
         foreach (var p in ordered)
         {
+            string brandCell = string.IsNullOrWhiteSpace(p.Brand) ? p.Title : p.Brand;
+            string formCell = string.IsNullOrWhiteSpace(p.Form) ? "—" : p.Form;
+            string doseCell = string.IsNullOrWhiteSpace(p.Dose) ? "—" : p.Dose;
+            string ircCell = p.Subtitle.StartsWith("IRC: ") ? p.Subtitle.Substring(5) : (p.Subtitle.Length > 0 ? p.Subtitle : "—");
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(95) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(145) });
+
+            AddPriceCell(grid, 0, formCell, "#EFF6FF", "#1E3A8A", 11.5);
+            AddPriceCell(grid, 1, brandCell, "#FFFFFF", "#0F172A", 12.5, bold: true);
+            AddPriceCell(grid, 2, doseCell, "#FFFFFF", "#0F172A", 11.5, ltr: true);
+            AddPriceCell(grid, 3, ircCell, "#F8FAFC", "#475569", 11, ltr: true);
+
             var btn = new System.Windows.Controls.Button
             {
-                Content = string.IsNullOrWhiteSpace(p.Subtitle) ? p.Title : p.Title + "   |   " + p.Subtitle,
+                Content = grid,
                 Style = (Style)FindResource("RoundedButtonStyle"),
                 Background = System.Windows.Media.Brushes.White,
-                Foreground = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#0F172A"),
-                FontSize = 12.5,
-                Height = 38,
                 Margin = new Thickness(0, 0, 0, 6),
-                HorizontalContentAlignment = System.Windows.HorizontalAlignment.Right,
-                Padding = new Thickness(12, 0, 12, 0),
+                HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch,
+                Padding = new Thickness(4, 4, 4, 4),
+                Height = 44,
                 Tag = p,
+                Cursor = System.Windows.Input.Cursors.Hand,
             };
             btn.Click += async (s, args) =>
             {
@@ -12016,6 +12049,34 @@ nQIDAQAB
             };
             PriceLookupResultsList.Children.Add(btn);
         }
+    }
+
+    /// <summary>یک باکس (سلول) داخل ردیف لیست فرآورده‌ها می‌سازد</summary>
+    private static void AddPriceCell(Grid grid, int col, string text, string bg, string fg, double fontSize, bool bold = false, bool ltr = false)
+    {
+        var border = new Border
+        {
+            Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(bg),
+            CornerRadius = new CornerRadius(6),
+            Margin = new Thickness(2),
+            Padding = new Thickness(6, 3, 6, 3),
+            VerticalAlignment = System.Windows.VerticalAlignment.Stretch,
+        };
+        var tb = new System.Windows.Controls.TextBlock
+        {
+            Text = text,
+            FontSize = fontSize,
+            Foreground = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(fg),
+            TextWrapping = System.Windows.TextWrapping.NoWrap,
+            TextTrimming = System.Windows.TextTrimming.CharacterEllipsis,
+            VerticalAlignment = System.Windows.VerticalAlignment.Center,
+            FontWeight = bold ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal,
+        };
+        if (ltr)
+            tb.FlowDirection = System.Windows.FlowDirection.LeftToRight;
+        border.Child = tb;
+        Grid.SetColumn(border, col);
+        grid.Children.Add(border);
     }
 
     private async void PriceLookupSearchButton_Click(object sender, RoutedEventArgs e)
@@ -12035,6 +12096,7 @@ nQIDAQAB
         PriceLookupResultsList.Children.Clear();
         PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
         PriceLookupNotDrugWarning.Visibility = Visibility.Collapsed;
+        PriceSearchInputsPanel.Visibility = Visibility.Visible;
         PriceNameInput.Focus();
     }
 

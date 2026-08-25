@@ -1074,6 +1074,7 @@
              دیده شود. -->
         <Grid x:Name="PriceLookupOverlay"
               Panel.ZIndex="400"
+              PreviewKeyDown="PriceLookupOverlay_PreviewKeyDown"
               Background="#80000000"
               Visibility="Collapsed">
             <Border Background="White"
@@ -1121,7 +1122,7 @@
                                 VerticalAlignment="Top" />
                     </Grid>
 
-                    <StackPanel Grid.Row="1" Margin="0,0,0,12">
+                    <StackPanel x:Name="PriceSearchInputsPanel" Grid.Row="1" Margin="0,0,0,12">
                         <!-- سه حالت جست‌وجو مثل سایت تی‌تک؛ کادر فعال با قاب آبی -->
                         <TextBlock Text="نام فرآورده" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
                         <Border x:Name="PriceNameBorder" CornerRadius="10" BorderThickness="1.5" BorderBrush="#CBD5E1" Background="White" Margin="0,0,0,8">
