@@ -12076,6 +12076,21 @@ nQIDAQAB
             return;
         }
 
+        foreach (var item in products)
+        {
+            if (string.IsNullOrWhiteSpace(item.Form) && string.IsNullOrWhiteSpace(item.Dose) && !string.IsNullOrWhiteSpace(item.Title))
+            {
+                Services.PriceLookupService.ParseNameParts(item.Title, out var brand, out var form, out var dose);
+                if (!string.IsNullOrWhiteSpace(form) || !string.IsNullOrWhiteSpace(dose))
+                {
+                    if (string.IsNullOrWhiteSpace(item.Brand) || item.Brand == item.Title)
+                        item.Brand = brand;
+                    item.Form = form;
+                    item.Dose = dose;
+                }
+            }
+        }
+
         // مرتب‌سازی طبق درخواست: شکل دارویی → اسم دارو → دوز → IRC
         var ordered = products
             .OrderBy(p => p.Title.StartsWith("فرآورده ", StringComparison.Ordinal) ? 1 : 0)
@@ -12100,14 +12115,14 @@ nQIDAQAB
             string ircCell = p.Subtitle.StartsWith("IRC: ") ? p.Subtitle.Substring(5) : (p.Subtitle.Length > 0 ? p.Subtitle : "—");
 
             var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(95) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(145) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
 
-            AddPriceCell(grid, 0, formCell, "#EFF6FF", "#1E3A8A", 11.5);
-            AddPriceCell(grid, 1, brandCell, "#FFFFFF", "#0F172A", 12.5, bold: true);
-            AddPriceCell(grid, 2, doseCell, "#FFFFFF", "#0F172A", 11.5, ltr: true);
+            AddPriceCell(grid, 0, formCell, "#EFF6FF", "#1E3A8A", 11.5, wrap: true);
+            AddPriceCell(grid, 1, brandCell, "#FFFFFF", "#0F172A", 12.5, bold: true, wrap: true);
+            AddPriceCell(grid, 2, doseCell, "#FFFFFF", "#0F172A", 11.5, ltr: true, wrap: true);
             AddPriceCell(grid, 3, ircCell, "#F8FAFC", "#475569", 11, ltr: true);
 
             var btn = new System.Windows.Controls.Button
@@ -12117,11 +12132,16 @@ nQIDAQAB
                 Background = System.Windows.Media.Brushes.White,
                 Margin = new Thickness(0, 0, 0, 6),
                 HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch,
-                Padding = new Thickness(4, 4, 4, 4),
-                Height = 44,
+                VerticalContentAlignment = System.Windows.VerticalAlignment.Stretch,
+                Padding = new Thickness(6, 6, 6, 6),
+                MinHeight = 52,
+                Height = double.NaN,
                 Tag = p,
                 Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = BuildPriceRowTooltip(p.Title),
             };
+            System.Windows.Controls.ToolTipService.SetInitialShowDelay(btn, 250);
+            System.Windows.Controls.ToolTipService.SetShowDuration(btn, 30000);
             btn.Click += async (s, args) =>
             {
                 if (s is System.Windows.Controls.Button b && b.Tag is Services.PriceLookupService.ProductSummary sel)
@@ -12143,14 +12163,14 @@ nQIDAQAB
     }
 
     /// <summary>یک باکس (سلول) داخل ردیف لیست فرآورده‌ها می‌سازد</summary>
-    private static void AddPriceCell(Grid grid, int col, string text, string bg, string fg, double fontSize, bool bold = false, bool ltr = false)
+    private static void AddPriceCell(Grid grid, int col, string text, string bg, string fg, double fontSize, bool bold = false, bool ltr = false, bool wrap = false)
     {
         var border = new Border
         {
             Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(bg),
             CornerRadius = new CornerRadius(6),
             Margin = new Thickness(2),
-            Padding = new Thickness(6, 3, 6, 3),
+            Padding = new Thickness(8, 5, 8, 5),
             VerticalAlignment = System.Windows.VerticalAlignment.Stretch,
         };
         var tb = new System.Windows.Controls.TextBlock
@@ -12158,9 +12178,8 @@ nQIDAQAB
             Text = text,
             FontSize = fontSize,
             Foreground = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(fg),
-            TextWrapping = System.Windows.TextWrapping.NoWrap,
-            TextTrimming = System.Windows.TextTrimming.None,
-            MaxWidth = 380,
+            TextWrapping = wrap ? System.Windows.TextWrapping.Wrap : System.Windows.TextWrapping.NoWrap,
+            TextTrimming = wrap ? System.Windows.TextTrimming.None : System.Windows.TextTrimming.CharacterEllipsis,
             VerticalAlignment = System.Windows.VerticalAlignment.Center,
             FontWeight = bold ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal,
         };
@@ -12169,6 +12188,26 @@ nQIDAQAB
         border.Child = tb;
         Grid.SetColumn(border, col);
         grid.Children.Add(border);
+    }
+
+    private static System.Windows.Controls.ToolTip BuildPriceRowTooltip(string fullName)
+    {
+        return new System.Windows.Controls.ToolTip
+        {
+            Background = System.Windows.Media.Brushes.White,
+            BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xCB, 0xD5, 0xE1)),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12, 8, 12, 8),
+            Content = new System.Windows.Controls.TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(fullName) ? "—" : fullName,
+                FontSize = 13.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x0F, 0x17, 0x2A)),
+                TextWrapping = System.Windows.TextWrapping.Wrap,
+                MaxWidth = 520,
+            }
+        };
     }
 
     private async void PriceLookupSearchButton_Click(object sender, RoutedEventArgs e)

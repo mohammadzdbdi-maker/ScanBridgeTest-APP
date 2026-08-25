@@ -1073,7 +1073,7 @@
              کلیک کاربر می‌ماند. Panel.ZIndex بالا دارد تا حتی وقتی MessagesOverlay هم باز است، بالاتر
              دیده شود. -->
         <Grid x:Name="PriceResultOverlay" Panel.ZIndex="420" Background="#80000000" Visibility="Collapsed" PreviewKeyDown="PriceResultOverlay_PreviewKeyDown">
-    <Border Background="White" CornerRadius="24" Padding="24" Width="520" HorizontalAlignment="Center" VerticalAlignment="Center">
+    <Border Background="White" CornerRadius="24" Padding="24" Width="640" MaxHeight="860" HorizontalAlignment="Center" VerticalAlignment="Center">
         <StackPanel>
             <Grid Margin="0,0,0,14">
                 <Grid.ColumnDefinitions>
@@ -1134,8 +1134,8 @@
             <Border Background="White"
                     CornerRadius="24"
                     Padding="24"
-                    Width="620"
-                    MaxHeight="720"
+                    Width="980"
+                    MaxHeight="880"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center">
                 <Grid>

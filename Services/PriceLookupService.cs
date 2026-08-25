@@ -458,11 +458,17 @@ public sealed class PriceLookupService
                 string en = GetString(item, "EnBrandName", "enBrandName", "EnglishName", "englishName");
                 string irc = GetString(item, "Irc", "irc");
                 string title = !string.IsNullOrWhiteSpace(fa) ? fa : (!string.IsNullOrWhiteSpace(en) ? en : "فرآورده " + id);
+                ParseNameParts(title, out var brand, out var form, out var dose);
                 list.Add(new ProductSummary
                 {
                     ProductId = id,
                     Title = title,
                     Subtitle = string.IsNullOrWhiteSpace(irc) ? "" : "IRC: " + irc,
+                    Brand = brand,
+                    Form = form,
+                    Dose = dose,
+                    EnName = en,
+                    Irc = irc,
                 });
             }
             return list;
@@ -503,9 +509,10 @@ public sealed class PriceLookupService
 
     private static readonly string[] KnownForms =
     {
-        "پیوسته رهش", "سافت ژل", "قرص", "کپسول", "شربت", "آمپول", "قطره", "پماد", "کرم", "ژل",
+        "پیوسته رهش", "سافت ژل", "قرص روکشدار", "قرص جوشان", "قرص جویدنی", "قرص زیرزبانی",
+        "کپسول نرم", "قرص", "کپسول", "شربت", "آمپول", "قطره", "پماد", "کرم", "ژل",
         "اسپری", "سوسپانسیون", "محلول", "پودر", "شیاف", "ویال", "مایع", "انفوزیون", "تری گرم",
-        "ماندگار", "مواد مؤثره", "اشکال"
+        "ماندگار", "مواد مؤثره", "اشکال", "ساشه", "سرم", "گرانول", "لوسیون", "اینهیلر"
     };
 
     /// <summary>
@@ -622,11 +629,16 @@ public sealed class PriceLookupService
                 if (!string.IsNullOrWhiteSpace(irc))
                     subtitle = string.IsNullOrWhiteSpace(subtitle) ? "IRC: " + irc : subtitle + " | IRC: " + irc;
 
+                ParseNameParts(title, out var brand, out var form, out var dose);
+
                 list.Add(new ProductSummary
                 {
                     ProductId = id,
                     Title = title,
                     Subtitle = subtitle,
+                    Brand = brand,
+                    Form = form,
+                    Dose = dose,
                     EnName = en,
                     BrandOwner = owner,
                     Irc = irc,
