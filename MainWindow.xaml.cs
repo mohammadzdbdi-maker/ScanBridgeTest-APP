@@ -12003,6 +12003,26 @@ nQIDAQAB
         else if (mode == "generic") query = PriceGenericInput.Text.Trim();
         else { query = PriceNameInput.Text.Trim(); mode = "name"; }
 
+        // اگر فوکوس روی کادر دیگری مانده ولی فقط یکی از کادرها پر است، همان را جست‌وجو کن
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            if (!string.IsNullOrWhiteSpace(PriceGenericInput.Text))
+            {
+                mode = "generic";
+                query = PriceGenericInput.Text.Trim();
+            }
+            else if (!string.IsNullOrWhiteSpace(PriceBarcodeInput.Text))
+            {
+                mode = "barcode";
+                query = PriceBarcodeInput.Text.Trim();
+            }
+            else if (!string.IsNullOrWhiteSpace(PriceNameInput.Text))
+            {
+                mode = "name";
+                query = PriceNameInput.Text.Trim();
+            }
+        }
+
         if (query.Length < 2)
         {
             ShowStyledMessage("کم است", "حداقل دو حرف وارد کنید یا بارکد را اسکن کنید.", true);
@@ -12043,23 +12063,17 @@ nQIDAQAB
         if (products.Count == 1)
         {
             var single = products[0];
-            if (single.HasDirectPrice)
-            {
-                ShowPriceResult(new Services.PriceLookupService.PriceResult
-                {
-                    Success = true,
-                    FaName = single.Title,
-                    ProductType = "زیر فرآورده دارو",
-                    ConsumerPricePerUnit = single.ConsumerPricePerUnit,
-                    TotalPriceRial = single.TotalPriceRial,
-                });
-                return;
-            }
-            if (single.ProductId > 0)
+            bool needsFetch = single.ProductId > 0
+                && string.IsNullOrWhiteSpace(single.EnName)
+                && string.IsNullOrWhiteSpace(single.GenericCode)
+                && string.IsNullOrWhiteSpace(single.BrandOwner);
+            if (needsFetch)
             {
                 await RunProductDetailsAsync(single.ProductId, single.Title);
                 return;
             }
+            ShowPriceResult(PriceLookup.ToPriceResult(single));
+            return;
         }
 
         // مرتب‌سازی طبق درخواست: شکل دارویی → اسم دارو → دوز → IRC
@@ -12112,40 +12126,16 @@ nQIDAQAB
             {
                 if (s is System.Windows.Controls.Button b && b.Tag is Services.PriceLookupService.ProductSummary sel)
                 {
-                    if (sel.HasDirectPrice)
-                    {
-                        string en = "", owner = "", genCode = "", pack = "", ptype = "";
-                        try
-                        {
-                            if (sel.FullInfo.ValueKind == System.Text.Json.JsonValueKind.Object)
-                            {
-                                en = sel.FullInfo.TryGetProperty("EnBrandName", out var enEl) ? (enEl.GetString() ?? "") : "";
-                                owner = sel.FullInfo.TryGetProperty("FaBrandOwnerName", out var owEl) ? (owEl.GetString() ?? "") : "";
-                                genCode = sel.FullInfo.TryGetProperty("DrugGenericCode", out var gcEl) ? gcEl.GetRawText() : "";
-                                pack = sel.FullInfo.TryGetProperty("PackageCount", out var pcEl) ? pcEl.GetRawText() : "";
-                                ptype = sel.FullInfo.TryGetProperty("ProductType", out var ptEl) ? (ptEl.GetString() ?? "") : "";
-                            }
-                        }
-                        catch { }
-                        bool notDrug = ptype.Length > 0 && !ptype.Contains("\u062f\u0627\u0631\u0648");
-                        ShowPriceResultWindow(new Services.PriceLookupService.PriceResult
-                        {
-                            Success = true,
-                            FaName = sel.Title,
-                            EnName = en,
-                            BrandOwner = owner,
-                            GenericCode = genCode,
-                            PackageCount = pack,
-                            ProductType = ptype,
-                            ConsumerPricePerUnit = sel.ConsumerPricePerUnit,
-                            TotalPriceRial = sel.TotalPriceRial,
-                            FoundButNotDrugSubgroup = notDrug,
-                        });
-                    }
-                    else if (sel.ProductId > 0)
+                    bool needsFetch = sel.ProductId > 0
+                        && string.IsNullOrWhiteSpace(sel.EnName)
+                        && string.IsNullOrWhiteSpace(sel.GenericCode)
+                        && string.IsNullOrWhiteSpace(sel.BrandOwner);
+                    if (needsFetch)
                     {
                         await RunProductDetailsAsync(sel.ProductId, sel.Title);
+                        return;
                     }
+                    ShowPriceResult(PriceLookup.ToPriceResult(sel));
                 }
             };
             PriceLookupResultsList.Children.Add(btn);
