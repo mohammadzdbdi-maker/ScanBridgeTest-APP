@@ -44,11 +44,21 @@ public sealed class PriceLookupService
         public string Brand { get; set; } = "";
         public string Form { get; set; } = "";
         public string Dose { get; set; } = "";
+        // فیلدهای کامل محصول — باید جدا ذخیره شوند؛ نمی‌شود به JsonElement بعد از Dispose سند تکیه کرد
+        public string EnName { get; set; } = "";
+        public string GenericCode { get; set; } = "";
+        public string PackageCount { get; set; } = "";
+        public string BrandOwner { get; set; } = "";
+        public string ProductType { get; set; } = "";
+        public string Irc { get; set; } = "";
         // اگر از GetProductsForPharmacies آمده باشد، قیمت و اطلاعات کامل همین‌جا موجود است
         public decimal ConsumerPricePerUnit { get; set; }
         public decimal TotalPriceRial { get; set; }
         public JsonElement FullInfo { get; set; }
         public bool HasDirectPrice => ConsumerPricePerUnit > 0;
+        public bool HasProductInfo =>
+            !string.IsNullOrWhiteSpace(Title)
+            && !Title.StartsWith("فرآورده ", StringComparison.Ordinal);
     }
 
     public sealed class PriceResult
@@ -177,6 +187,13 @@ public sealed class PriceLookupService
                     it.Subtitle = string.IsNullOrWhiteSpace(it.Subtitle)
                         ? d.BrandOwner
                         : it.Subtitle + " | " + d.BrandOwner;
+                it.EnName = d.EnName;
+                it.GenericCode = d.GenericCode;
+                it.PackageCount = d.PackageCount;
+                it.BrandOwner = d.BrandOwner;
+                it.ProductType = d.ProductType;
+                it.ConsumerPricePerUnit = d.ConsumerPricePerUnit;
+                it.TotalPriceRial = d.TotalPriceRial;
             }
         }).ToList();
 
@@ -228,22 +245,7 @@ public sealed class PriceLookupService
                     System.Diagnostics.Debug.WriteLine($"[PriceLookup] Raw first item: {first.GetRawText()}");
                 } catch { }
 
-                decimal unitPrice = GetDecimal(first, "ConsumerPrice", "consumerPrice", "UnitPrice", "unitPrice", "Price", "price");
-                decimal pack = GetDecimal(first, "PackageCount", "packageCount", "PackCount", "packCount", "PackageQty", "packageQty", "Qty", "qty");
-
-                result = new PriceResult
-                {
-                    Success = true,
-                    FaName = GetString(first, "FaBrandName", "faBrandName", "PersianName", "persianName", "NameFa", "PersianProductName", "persianProductName", "ProductNameFa", "productNameFa", "Name", "name", "Title", "title", "FaName", "faName"),
-                    EnName = GetString(first, "EnBrandName", "enBrandName", "EnglishName", "englishName", "NameEn", "EnglishProductName", "englishProductName", "ProductNameEn", "productNameEn", "EnName", "enName", "TitleEn", "titleEn"),
-                    GenericCode = GetString(first, "DrugGenericCode", "drugGenericCode", "GenericCode", "genericCode", "DrugCode", "drugCode", "GenericCodeStr", "genericCodeStr"),
-                    PackageCount = GetString(first, "PackageCount", "packageCount", "PackCount", "packCount", "PackageQty", "packageQty", "PackSize", "packSize", "Qty", "qty", "PackageQuantity", "packageQuantity"),
-                    BrandOwner = GetString(first, "FaBrandOwnerName", "faBrandOwnerName", "BrandOwnerFa", "BrandOwner", "brandOwner", "Manufacturer", "manufacturer", "CompanyName", "companyName", "OwnerName", "ownerName", "FaCompanyName", "faCompanyName"),
-                    ProductType = GetString(first, "ProductType", "productType", "Type", "type", "Category", "category"),
-                    // طبق درخواست کاربر: قیمت مصرف‌کننده = تعداد در بسته × قیمت هر واحد (به ریال)
-                    ConsumerPricePerUnit = unitPrice,
-                    TotalPriceRial = unitPrice > 0 && pack > 0 ? unitPrice * pack : unitPrice,
-                };
+                result = ParsePriceResultFromItem(first);
             }
             catch (Exception ex)
             {
@@ -264,28 +266,49 @@ public sealed class PriceLookupService
     }
 
     /// <summary>
+    /// ساخت نتیجهٔ کامل از یک ردیف لیست (جست‌وجوی ژنریک/نام) بدون مراجعهٔ دوباره به API.
+    /// </summary>
+    public PriceResult ToPriceResult(ProductSummary item)
+    {
+        string ptype = item.ProductType ?? "";
+        string normalized = NormalizePersian(ptype);
+        bool isDrugSub = string.IsNullOrWhiteSpace(ptype)
+                         || normalized.Contains(NormalizePersian("زیر فرآورده دارو"));
+        return new PriceResult
+        {
+            Success = true,
+            FaName = item.Title,
+            EnName = item.EnName,
+            GenericCode = item.GenericCode,
+            PackageCount = item.PackageCount,
+            BrandOwner = item.BrandOwner,
+            ProductType = ptype,
+            ConsumerPricePerUnit = item.ConsumerPricePerUnit,
+            TotalPriceRial = item.TotalPriceRial,
+            FoundButNotDrugSubgroup = !isDrugSub && !string.IsNullOrWhiteSpace(ptype),
+        };
+    }
+
+    /// <summary>
     /// جست‌وجوی کد ژنریک: مثل سایت تی‌تک، فیلتر روی «کد ژنریک». چند نام پارامتر محتمل را
     /// به‌ترتیب امتحان می‌کنیم تا یکی جواب دهد (GenericCode، DrugGenericCode، Name=کد، searchExp).
     /// </summary>
     public async Task<List<ProductSummary>> SearchByGenericCodeAsync(string code, string? token = null)
     {
-        // پارامتر درست که از HAR واقعی درآمد: DrugGenericCode روی GetProductsForPharmacies
-        try
-        {
-            string url = $"{ProductsForPharmaciesUrl}?searchExp=&DrugGenericCode={Uri.EscapeDataString(code)}&PageSize=50&PageNumber=1";
-            using var req = BuildGet(url, token);
-            using var resp = await _http.SendAsync(req);
-            string body = await resp.Content.ReadAsStringAsync();
-            if (resp.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(body))
-            {
-                var list = ParseFullProductsList(body);
-                if (list.Count > 0)
-                    return list;
-            }
-        }
-        catch { }
+        code = ToEnglishDigits(code ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(code))
+            return new List<ProductSummary>();
 
-        // اگر پاسخ خالی بود، شاید کد به‌صورت Id (نه Code) جست‌وجو شود
+        // پارامتر درست که از HAR واقعی درآمد: DrugGenericCode روی GetProductsForPharmacies
+        var list = await TryFetchPharmaciesListAsync($"searchExp=&DrugGenericCode={Uri.EscapeDataString(code)}", token);
+        if (list.Count > 0)
+            return list;
+
+        list = await TryFetchPharmaciesListAsync($"searchExp=&GenericCode={Uri.EscapeDataString(code)}", token);
+        if (list.Count > 0)
+            return list;
+
+        // اگر پاسخ خالی بود، شاید کد به‌صورت Name در لیست فشرده پیدا شود
         try
         {
             string url = $"{CompactProductsUrl}?Name={Uri.EscapeDataString(code)}&PageSize=50&PageNumber=1";
@@ -294,7 +317,7 @@ public sealed class PriceLookupService
             string body = await resp.Content.ReadAsStringAsync();
             if (resp.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(body))
             {
-                var list = ParseCompactList(body);
+                list = ParseCompactList(body);
                 if (list.Count > 0)
                     return list;
             }
@@ -304,7 +327,22 @@ public sealed class PriceLookupService
         return new List<ProductSummary>();
     }
 
-    /// <summary>پارس پاسخ GetProductsForPharmacies — همه‌ی فیلدها (اسم، شکل، دوز، IRC) موجود است</summary>
+    private async Task<List<ProductSummary>> TryFetchPharmaciesListAsync(string query, string? token)
+    {
+        try
+        {
+            string url = $"{ProductsForPharmaciesUrl}?{query}&PageSize=50&PageNumber=1";
+            using var req = BuildGet(url, token);
+            using var resp = await _http.SendAsync(req);
+            string body = await resp.Content.ReadAsStringAsync();
+            if (resp.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(body))
+                return ParseFullProductsList(body);
+        }
+        catch { }
+        return new List<ProductSummary>();
+    }
+
+    /// <summary>پارس پاسخ GetProductsForPharmacies — همه‌ی فیلدها (اسم، شکل، دوز، IRC، ژنریک، مالک) ذخیره می‌شود</summary>
     private List<ProductSummary> ParseFullProductsList(string json)
     {
         var list = new List<ProductSummary>();
@@ -321,34 +359,65 @@ public sealed class PriceLookupService
             {
                 if (item.ValueKind != JsonValueKind.Object)
                     continue;
-                // این endpoint فقط Irc دارد، ProductId ندارد — به‌جای ProductId از Irc به‌عنوان کلید استفاده
-                // می‌کنیم (SearchByExpression و GetProductDetails با ProductId کار می‌کنند، پس برای این
-                // لیست‌ها مستقیماً از همین داده‌ها استفاده می‌کنیم و نیاز به ProductId نداریم)
-                string fa = GetString(item, "FaBrandName", "faBrandName");
-                string en = GetString(item, "EnBrandName", "enBrandName");
-                string irc = GetString(item, "Irc", "irc");
-                decimal consumerPrice = GetDecimal(item, "ConsumerPrice", "consumerPrice");
-                decimal pack = GetDecimal(item, "PackageCount", "packageCount");
 
-                string title = !string.IsNullOrWhiteSpace(fa) ? fa : (!string.IsNullOrWhiteSpace(en) ? en : "فرآورده " + irc);
+                var parsed = ParsePriceResultFromItem(item);
+                long id = (long)GetDecimal(item, "Id", "id", "ProductId", "productId");
+                string irc = GetString(item, "Irc", "irc", "IRC");
+
+                string title = !string.IsNullOrWhiteSpace(parsed.FaName)
+                    ? parsed.FaName
+                    : (!string.IsNullOrWhiteSpace(parsed.EnName)
+                        ? parsed.EnName
+                        : (!string.IsNullOrWhiteSpace(irc) ? "فرآورده " + irc : (id > 0 ? "فرآورده " + id : "فرآورده")));
                 ParseNameParts(title, out var brand, out var form, out var dose);
+
+                JsonElement full = default;
+                try { full = item.Clone(); } catch { }
+
+                string subtitle = !string.IsNullOrWhiteSpace(irc) ? "IRC: " + irc : parsed.BrandOwner;
 
                 list.Add(new ProductSummary
                 {
-                    ProductId = 0, // Irc-based، نیاز به ProductId نیست چون قیمت همین‌جا هست
+                    ProductId = id,
                     Title = title,
-                    Subtitle = string.IsNullOrWhiteSpace(irc) ? "" : "IRC: " + irc,
+                    Subtitle = subtitle,
                     Brand = brand,
                     Form = form,
                     Dose = dose,
-                    ConsumerPricePerUnit = consumerPrice,
-                    TotalPriceRial = consumerPrice > 0 && pack > 0 ? consumerPrice * pack : consumerPrice,
-                    FullInfo = item,
+                    EnName = parsed.EnName,
+                    GenericCode = parsed.GenericCode,
+                    PackageCount = parsed.PackageCount,
+                    BrandOwner = parsed.BrandOwner,
+                    ProductType = parsed.ProductType,
+                    Irc = irc,
+                    ConsumerPricePerUnit = parsed.ConsumerPricePerUnit,
+                    TotalPriceRial = parsed.TotalPriceRial,
+                    FullInfo = full,
                 });
             }
         }
         catch { }
         return list;
+    }
+
+    /// <summary>خواندن همهٔ فیلدهای نمایشی از یک آیتم JSON تی‌تک (قبل از Dispose سند)</summary>
+    private static PriceResult ParsePriceResultFromItem(JsonElement first)
+    {
+        decimal unitPrice = GetDecimal(first, "ConsumerPrice", "consumerPrice", "UnitPrice", "unitPrice", "Price", "price");
+        decimal pack = GetDecimal(first, "PackageCount", "packageCount", "PackCount", "packCount", "PackageQty", "packageQty", "Qty", "qty");
+
+        return new PriceResult
+        {
+            Success = true,
+            FaName = GetString(first, "FaBrandName", "faBrandName", "PersianName", "persianName", "NameFa", "PersianProductName", "persianProductName", "ProductNameFa", "productNameFa", "Name", "name", "Title", "title", "FaName", "faName"),
+            EnName = GetString(first, "EnBrandName", "enBrandName", "EnglishName", "englishName", "NameEn", "EnglishProductName", "englishProductName", "ProductNameEn", "productNameEn", "EnName", "enName", "TitleEn", "titleEn"),
+            GenericCode = GetString(first, "DrugGenericCode", "drugGenericCode", "GenericCode", "genericCode", "DrugCode", "drugCode", "GenericCodeStr", "genericCodeStr"),
+            PackageCount = GetString(first, "PackageCount", "packageCount", "PackCount", "packCount", "PackageQty", "packageQty", "PackSize", "packSize", "Qty", "qty", "PackageQuantity", "packageQuantity"),
+            BrandOwner = GetString(first, "FaBrandOwnerName", "faBrandOwnerName", "BrandOwnerFa", "BrandOwner", "brandOwner", "Manufacturer", "manufacturer", "CompanyName", "companyName", "OwnerName", "ownerName", "FaCompanyName", "faCompanyName"),
+            ProductType = GetString(first, "ProductType", "productType", "Type", "type", "Category", "category"),
+            ConsumerPricePerUnit = unitPrice,
+            TotalPriceRial = unitPrice > 0 && pack > 0 ? unitPrice * pack : unitPrice,
+        };
     }
 
     /// <summary>
@@ -553,7 +622,15 @@ public sealed class PriceLookupService
                 if (!string.IsNullOrWhiteSpace(irc))
                     subtitle = string.IsNullOrWhiteSpace(subtitle) ? "IRC: " + irc : subtitle + " | IRC: " + irc;
 
-                list.Add(new ProductSummary { ProductId = id, Title = title, Subtitle = subtitle });
+                list.Add(new ProductSummary
+                {
+                    ProductId = id,
+                    Title = title,
+                    Subtitle = subtitle,
+                    EnName = en,
+                    BrandOwner = owner,
+                    Irc = irc,
+                });
             }
         }
         catch
