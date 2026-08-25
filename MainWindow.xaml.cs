@@ -11847,10 +11847,8 @@ nQIDAQAB
 
     private void ShowPriceResultWindow(Services.PriceLookupService.PriceResult result)
     {
-        // عنوان: اگر اسم فارسی موجود باشد، آن را نشان بده
-        PriceResultTitleText.Text = !string.IsNullOrWhiteSpace(result.FaName)
-            ? "💰 " + result.FaName
-            : "💰 اطلاعات فرآورده";
+        // عنوان: همیشه «💰 استعلام قیمت» نشان بده
+        PriceResultTitleText.Text = "💰 استعلام قیمت";
         PriceResultFaName.Text = string.IsNullOrWhiteSpace(result.FaName) ? "—" : result.FaName;
         PriceResultEnName.Text = string.IsNullOrWhiteSpace(result.EnName) ? "—" : result.EnName;
         PriceResultGenericCode.Text = string.IsNullOrWhiteSpace(result.GenericCode) ? "—" : result.GenericCode;

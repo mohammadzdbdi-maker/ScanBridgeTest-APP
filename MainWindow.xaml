@@ -1080,8 +1080,8 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="PriceResultTitleText" Text="💰 اطلاعات فرآورده" FontSize="20" FontWeight="Bold" Foreground="#854D0E" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Content="&#1582;&#1575;&#1605;&#1608;&#1588;" Click="PriceResultCloseButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#F3F4F6" Foreground="#374151" Width="34" Height="34" Padding="0" />
+                <TextBlock x:Name="PriceResultTitleText" Text="💰 استعلام قیمت" FontSize="20" FontWeight="Bold" Foreground="#854D0E" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Content="✕" Click="PriceResultCloseButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#DC2626" Foreground="White" Width="34" Height="34" Padding="0" FontWeight="Bold" FontSize="16" />
             </Grid>
             <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
