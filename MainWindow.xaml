@@ -1080,7 +1080,7 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="PriceResultTitleText" Text="&#1581;&#1591;&#1575;&#1604;&#1593; &#1608;&#1583;&#1575;&#1604;&#1575; &#1601;&#1606;&#1587;&#1608;&#1585;&#1607;" FontSize="20" FontWeight="Bold" Foreground="#854D0E" VerticalAlignment="Center" />
+                <TextBlock x:Name="PriceResultTitleText" Text="💰 اطلاعات فرآورده" FontSize="20" FontWeight="Bold" Foreground="#854D0E" VerticalAlignment="Center" />
                 <Button Grid.Column="1" Content="&#1582;&#1575;&#1605;&#1608;&#1588;" Click="PriceResultCloseButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#F3F4F6" Foreground="#374151" Width="34" Height="34" Padding="0" />
             </Grid>
             <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">

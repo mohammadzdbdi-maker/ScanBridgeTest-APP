@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 
@@ -219,18 +220,26 @@ public sealed class PriceLookupService
 
                 var first = items.Value[0];
 
-                decimal unitPrice = GetDecimal(first, "ConsumerPrice", "consumerPrice");
-                decimal pack = GetDecimal(first, "PackageCount", "packageCount", "PackCount");
+                // ✅ لاگ دیباگ: کلیدهای موجود در پاسخ API را ذخیره کن
+                try
+                {
+                    string debugKeys = string.Join(", ", first.EnumerateObject().Select(p => p.Name));
+                    System.Diagnostics.Debug.WriteLine($"[PriceLookup] API keys: {debugKeys}");
+                    System.Diagnostics.Debug.WriteLine($"[PriceLookup] Raw first item: {first.GetRawText()}");
+                } catch { }
+
+                decimal unitPrice = GetDecimal(first, "ConsumerPrice", "consumerPrice", "UnitPrice", "unitPrice", "Price", "price");
+                decimal pack = GetDecimal(first, "PackageCount", "packageCount", "PackCount", "packCount", "PackageQty", "packageQty", "Qty", "qty");
 
                 result = new PriceResult
                 {
                     Success = true,
-                    FaName = GetString(first, "FaBrandName", "faBrandName", "PersianName", "persianName", "NameFa"),
-                    EnName = GetString(first, "EnBrandName", "enBrandName", "EnglishName", "englishName", "NameEn"),
-                    GenericCode = GetString(first, "DrugGenericCode", "drugGenericCode", "GenericCode", "genericCode"),
-                    PackageCount = GetString(first, "PackageCount", "packageCount", "PackCount"),
-                    BrandOwner = GetString(first, "FaBrandOwnerName", "faBrandOwnerName", "BrandOwnerFa"),
-                    ProductType = GetString(first, "ProductType", "productType"),
+                    FaName = GetString(first, "FaBrandName", "faBrandName", "PersianName", "persianName", "NameFa", "PersianProductName", "persianProductName", "ProductNameFa", "productNameFa", "Name", "name", "Title", "title", "FaName", "faName"),
+                    EnName = GetString(first, "EnBrandName", "enBrandName", "EnglishName", "englishName", "NameEn", "EnglishProductName", "englishProductName", "ProductNameEn", "productNameEn", "EnName", "enName", "TitleEn", "titleEn"),
+                    GenericCode = GetString(first, "DrugGenericCode", "drugGenericCode", "GenericCode", "genericCode", "DrugCode", "drugCode", "GenericCodeStr", "genericCodeStr"),
+                    PackageCount = GetString(first, "PackageCount", "packageCount", "PackCount", "packCount", "PackageQty", "packageQty", "PackSize", "packSize", "Qty", "qty", "PackageQuantity", "packageQuantity"),
+                    BrandOwner = GetString(first, "FaBrandOwnerName", "faBrandOwnerName", "BrandOwnerFa", "BrandOwner", "brandOwner", "Manufacturer", "manufacturer", "CompanyName", "companyName", "OwnerName", "ownerName", "FaCompanyName", "faCompanyName"),
+                    ProductType = GetString(first, "ProductType", "productType", "Type", "type", "Category", "category"),
                     // طبق درخواست کاربر: قیمت مصرف‌کننده = تعداد در بسته × قیمت هر واحد (به ریال)
                     ConsumerPricePerUnit = unitPrice,
                     TotalPriceRial = unitPrice > 0 && pack > 0 ? unitPrice * pack : unitPrice,
