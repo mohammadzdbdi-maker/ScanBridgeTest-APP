@@ -11893,6 +11893,7 @@ nQIDAQAB
         }
 
         PriceCustomQtyInput.Text = "";
+        UpdatePriceCustomQtyPlaceholder();
         PriceCustomQtyOverlay.Visibility = Visibility.Visible;
         PriceCustomQtyInput.Focus();
     }
@@ -11900,6 +11901,17 @@ nQIDAQAB
     private void ClosePriceCustomQty()
     {
         PriceCustomQtyOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void PriceCustomQtyInput_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e) => UpdatePriceCustomQtyPlaceholder();
+
+    private void UpdatePriceCustomQtyPlaceholder()
+    {
+        if (PriceCustomQtyPlaceholder == null)
+            return;
+        PriceCustomQtyPlaceholder.Visibility = string.IsNullOrWhiteSpace(PriceCustomQtyInput.Text)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void PriceCustomQtyCloseButton_Click(object sender, RoutedEventArgs e) => ClosePriceCustomQty();
@@ -12078,9 +12090,23 @@ nQIDAQAB
 
     private void PriceLookupCloseButton_Click(object sender, RoutedEventArgs e) => ClosePriceLookup();
 
-    /// <summary>دکمه‌ی «💰 استعلام قیمت» در پنل کاربری — پنجره را با کادر ورود باز می‌کند.</summary>
-    private void PriceLookupPanelButton_Click(object sender, RoutedEventArgs e)
+    /// <summary>دکمه‌ی «💰 استعلام قیمت» در پنل کاربری — فقط بعد از ورود به تی‌تک.</summary>
+    private async void PriceLookupPanelButton_Click(object sender, RoutedEventArgs e)
     {
+        string? token = await GetTtacAccessTokenOnUiThreadAsync(false);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            _pendingTtacRetryAction = async () =>
+            {
+                OpenPriceLookup("بر اساس نام، بارکد یا کد ژنریک جست‌وجو کنید");
+                PriceResetButton_Click(PriceLookupSearchButton, new RoutedEventArgs());
+                await Task.CompletedTask;
+            };
+            _pendingTtacRetryLabel = "استعلام قیمت";
+            ShowTtacLoginOverlay();
+            return;
+        }
+
         OpenPriceLookup("بر اساس نام، بارکد یا کد ژنریک جست‌وجو کنید");
         PriceResetButton_Click(sender, e);
     }
@@ -12088,28 +12114,34 @@ nQIDAQAB
     /// <summary>دکمه‌ی زرد «قیمت» کنار «ثبت در تی‌تک» در ردیف‌های تاریخچه تی‌تک.</summary>
     private async void TtTeckHistoryPriceButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is System.Windows.Controls.Button btn && btn.Tag is TtTeckHistoryRow row && !string.IsNullOrWhiteSpace(row.Barcode))
+        if (sender is not System.Windows.Controls.Button btn || btn.Tag is not TtTeckHistoryRow row || string.IsNullOrWhiteSpace(row.Barcode))
         {
-            // سرعت: اگر IRC از استعلام اولیه معلوم است، مستقیم برو
-            string? irc = _lastScannedIrc;
-            if (string.IsNullOrWhiteSpace(irc))
-            {
-                irc = await PriceLookup.GetIrcFromBarcodeAsync(row.Barcode, PriceLookupToken);
-            }
-            if (!string.IsNullOrWhiteSpace(irc))
-            {
-                var result = await PriceLookup.LookupByIrcAsync(irc, PriceLookupToken);
-                ShowPriceResult(result);
-            }
-            else
-            {
-                var result = await PriceLookup.LookupByBarcodeAsync(row.Barcode, PriceLookupToken);
-                ShowPriceResult(result);
-            }
+            ShowStyledMessage("بارکدی نیست", "برای این ردیف بارکدی ثبت نشده است.", true);
             return;
         }
 
-        ShowStyledMessage("بارکدی نیست", "برای این ردیف بارکدی ثبت نشده است.", true);
+        string barcode = row.Barcode;
+        string? token = await GetTtacAccessTokenOnUiThreadAsync(false);
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            _pendingTtacRetryAction = async () => await LookupHistoryRowPriceAsync(barcode);
+            _pendingTtacRetryLabel = "استعلام قیمت";
+            ShowTtacLoginOverlay();
+            return;
+        }
+
+        await LookupHistoryRowPriceAsync(barcode);
+    }
+
+    private async Task LookupHistoryRowPriceAsync(string barcode)
+    {
+        string? irc = _lastScannedIrc;
+        if (string.IsNullOrWhiteSpace(irc))
+            irc = await PriceLookup.GetIrcFromBarcodeAsync(barcode, PriceLookupToken);
+        var result = !string.IsNullOrWhiteSpace(irc)
+            ? await PriceLookup.LookupByIrcAsync(irc, PriceLookupToken)
+            : await PriceLookup.LookupByBarcodeAsync(barcode, PriceLookupToken);
+        ShowPriceResult(result);
     }
 
     private void PriceLookupOverlay_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -15607,6 +15639,13 @@ public class ExpiryWatchDisplayRow
 
 // ردیف نمایشی برای لیست «حساب‌های ذخیره‌شده‌ی تی‌تک» در تنظیمات - عمداً هیچ‌وقت رمز عبور را در
 // خودش نگه نمی‌دارد (فقط یوزرنیم و یک متن توضیحی)، چون این کلاس مستقیماً به UI بایند می‌شود و
+public sealed class TtacSavedLoginDisplayRow
+{
+    public string Username { get; set; } = string.Empty;
+    public string PharmacyName { get; set; } = string.Empty;
+    public string DisplayLabel => string.IsNullOrWhiteSpace(PharmacyName) ? Username : PharmacyName;
+}
+ین کلاس مستقیماً به UI بایند می‌شود و
 public sealed class TtacSavedLoginDisplayRow
 {
     public string Username { get; set; } = string.Empty;

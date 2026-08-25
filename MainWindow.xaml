@@ -1151,7 +1151,10 @@
                         <Button Grid.Column="1" Content="✕" Click="PriceCustomQtyCloseButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#DC2626" Foreground="White" Width="34" Height="34" Padding="0" FontWeight="Bold" FontSize="16" />
                     </Grid>
                     <TextBlock Text="تعداد را وارد کنید تا در قیمت یک عدد (مصرف‌کننده) ضرب شود؛ نه قیمت کل جعبه." FontSize="13" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,10" />
-                    <TextBox x:Name="PriceCustomQtyInput" Height="42" FontSize="18" Padding="10,0" VerticalContentAlignment="Center" FlowDirection="LeftToRight" BorderBrush="#CBD5E1" BorderThickness="1.5" />
+                    <Grid>
+                        <TextBox x:Name="PriceCustomQtyInput" Height="42" FontSize="18" Padding="10,0" VerticalContentAlignment="Center" FlowDirection="LeftToRight" BorderBrush="#CBD5E1" BorderThickness="1.5" TextChanged="PriceCustomQtyInput_TextChanged" />
+                        <TextBlock x:Name="PriceCustomQtyPlaceholder" Text="تعداد مد نظر را وارد کنید" FontSize="15" Foreground="#94A3B8" VerticalAlignment="Center" Margin="12,0,0,0" IsHitTestVisible="False" />
+                    </Grid>
                     <TextBlock x:Name="PriceCustomQtyErrorText" Text="" FontSize="12" Foreground="#DC2626" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
                     <Button Content="محاسبه قیمت" Click="PriceCustomQtyConfirmButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#16A34A" Foreground="White" FontWeight="Bold" Height="42" Margin="0,14,0,0" />
                 </StackPanel>
