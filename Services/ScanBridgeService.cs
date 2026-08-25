@@ -123,6 +123,7 @@ public sealed class ScanBridgeService : IDisposable
     // یک‌بارمصرف است؛ اولین اسکن بعدی مصرفش می‌کند (نگاه کنید به
     // TryAutoOpenInfantFormulaRegistration در MainWindow.xaml.cs).
     public event EventHandler? RemoteEntryRepeatArmReceived;
+    public event EventHandler<PriceLookupPhoneMessageEventArgs>? PriceLookupPhoneMessageReceived;
 
     public string ComputerId { get; }
     public string ComputerName { get; }
@@ -1269,6 +1270,18 @@ public sealed class ScanBridgeService : IDisposable
         }
     }
 
+    public void BroadcastJson(object payloadObj)
+    {
+        if (payloadObj == null)
+            return;
+        string json = JsonSerializer.Serialize(payloadObj);
+        foreach (var socket in _connectedDevices.Keys.ToArray())
+        {
+            try { SafeSend(socket, json); }
+            catch (Exception ex) { Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to send JSON to a device: {ex.Message}"); }
+        }
+    }
+
     public bool AllowDeviceToReconnect(string deviceName)
     {
         if (string.IsNullOrWhiteSpace(deviceName))
@@ -1739,6 +1752,18 @@ public sealed class RemoteEntryBackEventArgs : EventArgs
     public string Barcode { get; }
 }
 
+public sealed class PriceLookupPhoneMessageEventArgs : EventArgs
+{
+    public PriceLookupPhoneMessageEventArgs(string type, string json)
+    {
+        Type = type ?? string.Empty;
+        Json = json ?? string.Empty;
+    }
+
+    public string Type { get; }
+    public string Json { get; }
+}
+
 public sealed class ConnectionStateChangedEventArgs : EventArgs
 {
     public ConnectionStateChangedEventArgs(ConnectionState state, int connectedClients)
@@ -1907,6 +1932,17 @@ public static class KeyboardInjector
                 case ')':
                 case '{':
                 case '}':
+                    builder.Append('{').Append(c).Append('}');
+                    break;
+                default:
+                    builder.Append(c);
+                    break;
+            }
+        }
+
+        return builder.ToString();
+    }
+}
                     builder.Append('{').Append(c).Append('}');
                     break;
                 default:

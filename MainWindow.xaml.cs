@@ -531,6 +531,7 @@ nQIDAQAB
         _service.RemoteEntrySubmitReceived += (_, args) => HandleRemoteEntrySubmitFromPhone(args.Barcode);
         _service.RemoteEntryBackReceived += (_, args) => HandleRemoteEntryBackFromPhone(args.Barcode);
         _service.RemoteEntryRepeatArmReceived += (_, _) => HandleRemoteEntryRepeatArmFromPhone();
+        _service.PriceLookupPhoneMessageReceived += (_, args) => HandlePriceLookupPhoneMessage(args.Type, args.Json);
 
         // همگام‌سازی بانک بارکد پرمصرف بین چند سیستم هم‌شبکه با همان لایسنس - نگاه کنید به
         // MainWindow.HighUsageBarcode.cs (ApplyHighUsageBarcodeOperation/ApplyHighUsageBarcodeSnapshot).
@@ -11857,6 +11858,7 @@ nQIDAQAB
         if (result.TotalPriceRial > 0)
             PriceResultPriceText.Text = result.TotalPriceRial.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
         PriceResultOverlay.Visibility = Visibility.Visible;
+        BroadcastPriceLookupDetail(result);
     }
 
     private void ClosePriceResult()
@@ -12031,6 +12033,7 @@ nQIDAQAB
         if (_service != null) _service.SuppressKeyboardInjection = true;
         PriceSearchInputsPanel.Visibility = Visibility.Visible;
         PriceNameInput.Focus();
+        BroadcastPriceLookupOpen();
     }
 
     /// <summary>
@@ -12086,6 +12089,7 @@ nQIDAQAB
         PriceLookupOverlay.Visibility = Visibility.Collapsed;
         MainContent.Effect = null;
         if (_service != null) _service.SuppressKeyboardInjection = false;
+        BroadcastPriceLookupCancel();
     }
 
     private void PriceLookupCloseButton_Click(object sender, RoutedEventArgs e) => ClosePriceLookup();
@@ -12236,9 +12240,13 @@ nQIDAQAB
 
         if (query.Length < 2)
         {
-            ShowStyledMessage("کم است", "حداقل دو حرف وارد کنید یا بارکد را اسکن کنید.", true);
+            BroadcastPriceLookupStatus("حداقل دو حرف وارد کنید یا بارکد را اسکن کنید.");
+            if (!_priceLookupQueryFromPhone)
+                ShowStyledMessage("کم است", "حداقل دو حرف وارد کنید یا بارکد را اسکن کنید.", true);
             return;
         }
+
+        BroadcastPriceLookupStatus("🔍 در حال جست‌وجو در تی‌تک...");
 
         if (mode == "barcode")
         {
@@ -12268,11 +12276,13 @@ nQIDAQAB
         {
             PriceLookupStatusText.Visibility = Visibility.Visible;
             PriceLookupStatusText.Text = "❌ فرآورده‌ای پیدا نشد. عبارت را بررسی کنید.";
+            BroadcastPriceLookupList(products, "❌ فرآورده‌ای پیدا نشد. عبارت را بررسی کنید.");
             return;
         }
 
         if (products.Count == 1)
         {
+            BroadcastPriceLookupList(products, "۱ فرآورده پیدا شد");
             var single = products[0];
             bool needsFetch = single.ProductId > 0
                 && string.IsNullOrWhiteSpace(single.EnName)
@@ -12313,6 +12323,7 @@ nQIDAQAB
 
         PriceLookupStatusText.Text = ordered.Count + " فرآورده پیدا شد — یکی را انتخاب کنید:";
         PriceLookupStatusText.Visibility = Visibility.Visible;
+        BroadcastPriceLookupList(ordered, PriceLookupStatusText.Text);
         PriceLookupResultsList.Visibility = Visibility.Visible;
         PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
         PriceLookupResultsList.Children.Clear();
@@ -13885,7 +13896,7 @@ private void SaveTtTeckSettings()
             if (myGeneration != _scanToastGeneration)
                 return;
 
-            var fadeOut = new DoubleAnimation(1, 0, new Duration(TimeSpan.FromMilliseconds(250)));
+            var fadeOut = new Doubion(TimeSpan.FromMilliseconds(250)));
             fadeOut.Completed += (_, _) =>
             {
                 if (myGeneration == _scanToastGeneration)
@@ -14265,7 +14276,7 @@ private void SaveTtTeckSettings()
         RefreshExpiryWatchDisplayList();
 
         // به سرویس می‌گوییم این سیستم عضو کدام «گروه لایسنس» است تا فقط با سیستم‌های هم‌شبکه‌ای که
-        // همان لایسنس را دارند (نه هر سیستم دیگری روی همان وای‌فای) تنظیمات را رد و بدل کند؛ و بلافاصله
+        // همان لایسنس را دارند (نه هر سیستم دیگری روی همان وای‌فای) تنظیمات را رد و بدل کند؛ و بلافاصل�کند؛ و بلافاصله
         // یک اعلان می‌فرستد تا اگر همکاری روی همین شبکه از قبل بالا بوده، زودتر (نه بعد از ۱۵ ثانیه)
         // همدیگر را پیدا و تنظیمات را هماهنگ کنند.
         _service?.SetLicenseGroupKey(ComputeLicenseGroupKey());
