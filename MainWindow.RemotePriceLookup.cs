@@ -92,6 +92,24 @@ public partial class MainWindow
                 return;
             }
 
+            if (string.Equals(type, "PRICE_LOOKUP_REQUEST_OPEN", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!HasValidTtacToken())
+                {
+                    _pendingTtacRetryAction = async () =>
+                    {
+                        OpenPriceLookup("بر اساس نام، بارکد یا کد ژنریک جست‌وجو کنید");
+                        await Task.CompletedTask;
+                    };
+                    _pendingTtacRetryLabel = "استعلام قیمت";
+                    ShowTtacLoginOverlay();
+                    BroadcastPriceLookupStatus("برای استعلام قیمت وارد تی‌تک شوید.");
+                    return;
+                }
+                OpenPriceLookup("بر اساس نام، بارکد یا کد ژنریک جست‌وجو کنید");
+                return;
+            }
+
             if (string.Equals(type, "PRICE_LOOKUP_SEARCH", StringComparison.OrdinalIgnoreCase))
             {
                 string mode = ReadJsonStringLocal(root, "mode") ?? "name";
@@ -102,10 +120,31 @@ public partial class MainWindow
 
             if (string.Equals(type, "PRICE_LOOKUP_SELECT", StringComparison.OrdinalIgnoreCase))
             {
-                int index = 0;
-                if (root.TryGetProperty("index", out var ix) && ix.TryGetInt32(out var n))
-                    index = n;
-                await SelectPriceLookupItemFromPhoneAsync(index);
+                int index = -1;
+                if (root.TryGetProperty("index", out var ix))
+                {
+                    if (ix.TryGetInt32(out var n)) index = n;
+                    else if (ix.TryGetInt64(out var l)) index = (int)l;
+                }
+                long productId = 0;
+                if (root.TryGetProperty("productId", out var pid))
+                {
+                    if (pid.TryGetInt64(out var pl)) productId = pl;
+                    else if (pid.TryGetInt32(out var pi)) productId = pi;
+                }
+                await SelectPriceLookupItemFromPhoneAsync(index, productId);
+                return;
+            }
+
+            if (string.Equals(type, "PRICE_LOOKUP_CUSTOM_QTY", StringComparison.OrdinalIgnoreCase))
+            {
+                decimal qty = 0;
+                if (root.TryGetProperty("qty", out var qel))
+                {
+                    if (qel.TryGetDecimal(out var qd)) qty = qd;
+                    else if (qel.TryGetDouble(out var qf)) qty = (decimal)qf;
+                }
+                ApplyCustomQtyFromPhone(qty);
             }
         }
         catch (Exception ex)
@@ -158,25 +197,51 @@ public partial class MainWindow
         }
     }
 
-    private async Task SelectPriceLookupItemFromPhoneAsync(int index)
+    private async Task SelectPriceLookupItemFromPhoneAsync(int index, long productId = 0)
     {
-        if (index < 0 || index >= _priceLookupPhoneList.Count)
+        Services.PriceLookupService.ProductSummary? sel = null;
+        if (index >= 0 && index < _priceLookupPhoneList.Count)
+            sel = _priceLookupPhoneList[index];
+        if (sel == null && productId > 0)
+            sel = _priceLookupPhoneList.FirstOrDefault(p => p.ProductId == productId);
+
+        if (sel == null)
         {
-            BroadcastPriceLookupStatus("این فرآورده در لیست نیست.");
+            if (productId > 0)
+            {
+                await RunProductDetailsAsync(productId, "فرآورده");
+                return;
+            }
+            BroadcastPriceLookupStatus("این فرآورده در لیست نیست. دوباره جست‌وجو کنید.");
             return;
         }
 
-        var sel = _priceLookupPhoneList[index];
         bool needsFetch = sel.ProductId > 0
-            && string.IsNullOrWhiteSpace(sel.EnName)
-            && string.IsNullOrWhiteSpace(sel.GenericCode)
-            && string.IsNullOrWhiteSpace(sel.BrandOwner);
+            && (string.IsNullOrWhiteSpace(sel.EnName)
+                || string.IsNullOrWhiteSpace(sel.BrandOwner)
+                || sel.TotalPriceRial <= 0);
         if (needsFetch)
         {
             await RunProductDetailsAsync(sel.ProductId, sel.Title);
             return;
         }
         ShowPriceResult(PriceLookup.ToPriceResult(sel));
+    }
+
+    private void ApplyCustomQtyFromPhone(decimal qty)
+    {
+        if (qty <= 0)
+        {
+            BroadcastPriceLookupStatus("یک تعداد معتبر وارد کنید.");
+            return;
+        }
+        if (_lastPriceResult == null)
+        {
+            BroadcastPriceLookupStatus("ابتدا یک فرآورده را انتخاب کنید.");
+            return;
+        }
+        PriceCustomQtyInput.Text = qty.ToString(CultureInfo.InvariantCulture);
+        ConfirmPriceCustomQty();
     }
 
     private static string? ReadJsonStringLocal(JsonElement root, string name)
