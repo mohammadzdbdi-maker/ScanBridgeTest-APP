@@ -418,22 +418,17 @@ nQIDAQAB
                     return;
                 }
 
-                // اگر پنجره‌ی استعلام قیمت باز است، اسکن مستقیماً همانجا جست‌وجو می‌شود
-                // (تایپ کیبورد هم با SuppressKeyboardInjection قطع شده تا بارکد دو بار ننشیند)
-                bool priceLookupActive = await Dispatcher.InvokeAsync(() => PriceLookupOverlay.Visibility == Visibility.Visible);
+                // اگر پنجره‌ی استعلام قیمت باز است، اسکن داخل همان کادر فعال می‌نشیند
+                // (نام / بارکد / ژنریک). تایپ کیبورد جداگانه قطع است تا متن دو بار نیاید.
+                bool priceLookupActive = Dispatcher.CheckAccess()
+                    ? PriceLookupOverlay.Visibility == Visibility.Visible
+                    : Dispatcher.Invoke(() => PriceLookupOverlay.Visibility == Visibility.Visible);
                 if (priceLookupActive)
                 {
-                    await Dispatcher.InvokeAsync(() =>
-                    {
-                        PriceNameInput.Text = "";
-                        PriceGenericInput.Text = "";
-                        PriceBarcodeInput.Text = incomingBarcode;
-                        _priceActiveField = "barcode";
-                        PriceSearchInputsPanel.Visibility = Visibility.Visible;
-                        PriceBarcodeInput.Focus();
-                        PriceBarcodeInput.CaretIndex = incomingBarcode.Length;
-                        _ = RunPriceLookupAsync(incomingBarcode, isFromScan: true);
-                    });
+                    if (Dispatcher.CheckAccess())
+                        ApplyScannedValueToPriceLookup(incomingBarcode);
+                    else
+                        Dispatcher.Invoke(() => ApplyScannedValueToPriceLookup(incomingBarcode));
                     return;
                 }
 
@@ -11903,6 +11898,54 @@ nQIDAQAB
         PriceNameInput.Focus();
     }
 
+    /// <summary>
+    /// اسکن گوشی را در کادر فعال استعلام قیمت می‌گذارد (نام / بارکد / ژنریک) و همان را جست‌وجو می‌کند.
+    /// </summary>
+    private void ApplyScannedValueToPriceLookup(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return;
+
+        PriceSearchInputsPanel.Visibility = Visibility.Visible;
+        PriceLookupResultsList.Visibility = Visibility.Collapsed;
+        PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
+
+        string mode = _priceActiveField;
+        if (mode != "name" && mode != "barcode" && mode != "generic")
+            mode = "barcode";
+
+        System.Windows.Controls.TextBox target;
+        if (mode == "name")
+        {
+            PriceBarcodeInput.Text = "";
+            PriceGenericInput.Text = "";
+            PriceNameInput.Text = value;
+            target = PriceNameInput;
+        }
+        else if (mode == "generic")
+        {
+            PriceNameInput.Text = "";
+            PriceBarcodeInput.Text = "";
+            PriceGenericInput.Text = value;
+            target = PriceGenericInput;
+        }
+        else
+        {
+            PriceNameInput.Text = "";
+            PriceGenericInput.Text = "";
+            PriceBarcodeInput.Text = value;
+            target = PriceBarcodeInput;
+            mode = "barcode";
+        }
+
+        _priceActiveField = mode;
+        target.Focus();
+        target.CaretIndex = value.Length;
+        target.SelectAll();
+
+        _ = RunActivePriceSearchAsync();
+    }
+
     private void ClosePriceLookup()
     {
         PriceLookupOverlay.Visibility = Visibility.Collapsed;
@@ -11969,6 +12012,19 @@ nQIDAQAB
             _priceActiveField = tag;
             if (tb.Parent is Border b)
                 b.BorderBrush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString("#2563EB");
+        }
+    }
+
+    private void PriceInputBorder_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (sender is Border border)
+        {
+            var box = FindVisualChild<System.Windows.Controls.TextBox>(border);
+            if (box != null)
+            {
+                box.Focus();
+                e.Handled = true;
+            }
         }
     }
 

@@ -308,9 +308,9 @@ public sealed class ScanBridgeService : IDisposable
                     PublishConnectedDevices();
                 }
 
-                // وقتی پنجره‌ی استعلام قیمت باز است، تایپ کیبورد قطع می‌شود تا بارکد
-                // به‌جای یک‌بار، دو بار (UI + تایپ) داخل کادر ننشیند.
-                if (!string.IsNullOrWhiteSpace(barcode) && !SuppressKeyboardInjection)
+                // اسکن همیشه باید وارد صف شود. قطع تایپ کیبورد فقط در ProcessQueue است؛
+                // اگر اینجا صف نشود، با باز بودن استعلام قیمت بارکد کلاً گم می‌شود.
+                if (!string.IsNullOrWhiteSpace(barcode))
                 {
                     _keyboardQueue.Add((socket, barcode, deviceName));
                 }

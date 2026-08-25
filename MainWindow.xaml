@@ -1179,9 +1179,9 @@
                     <StackPanel x:Name="PriceSearchInputsPanel" Grid.Row="1" Margin="0,0,0,12">
                         <!-- سه حالت جست‌وجو مثل سایت تی‌تک؛ کادر فعال با قاب آبی -->
                         <TextBlock Text="نام فرآورده" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
-                        <Border x:Name="PriceNameBorder" CornerRadius="10" BorderThickness="1.5" BorderBrush="#CBD5E1" Background="White" Margin="0,0,0,8">
+                        <Border x:Name="PriceNameBorder" CornerRadius="10" BorderThickness="1.5" BorderBrush="#CBD5E1" Background="White" Margin="0,0,0,8" MouseLeftButtonDown="PriceInputBorder_MouseLeftButtonDown">
                             <TextBox x:Name="PriceNameInput" BorderThickness="0" Background="Transparent" Height="36" Padding="8,0" FontSize="13" VerticalContentAlignment="Center"
-                                     GotFocus="PriceInput_GotFocus" LostFocus="PriceInput_LostFocus" KeyDown="PriceInput_KeyDown" Tag="name" />
+                                     GotFocus="PriceInput_GotFocus" LostFocus="PriceInput_LostFocus" PreviewKeyDown="PriceInput_KeyDown" Tag="name" />
                         </Border>
 
                         <TextBlock Text="بارکد فرآورده (اسکن کنید)" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
@@ -1191,9 +1191,9 @@
                         </Border>
 
                         <TextBlock Text="کد ژنریک" FontSize="11" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
-                        <Border x:Name="PriceGenericBorder" CornerRadius="10" BorderThickness="1.5" BorderBrush="#CBD5E1" Background="White" Margin="0,0,0,10">
+                        <Border x:Name="PriceGenericBorder" CornerRadius="10" BorderThickness="1.5" BorderBrush="#CBD5E1" Background="White" Margin="0,0,0,10" MouseLeftButtonDown="PriceInputBorder_MouseLeftButtonDown">
                             <TextBox x:Name="PriceGenericInput" BorderThickness="0" Background="Transparent" Height="36" Padding="8,0" FontSize="13" VerticalContentAlignment="Center" FlowDirection="LeftToRight"
-                                     GotFocus="PriceInput_GotFocus" LostFocus="PriceInput_LostFocus" KeyDown="PriceInput_KeyDown" Tag="generic" />
+                                     GotFocus="PriceInput_GotFocus" LostFocus="PriceInput_LostFocus" PreviewKeyDown="PriceInput_KeyDown" Tag="generic" />
                         </Border>
 
                         <Grid>
