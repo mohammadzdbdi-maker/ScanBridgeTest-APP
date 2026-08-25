@@ -15645,10 +15645,3 @@ public sealed class TtacSavedLoginDisplayRow
     public string PharmacyName { get; set; } = string.Empty;
     public string DisplayLabel => string.IsNullOrWhiteSpace(PharmacyName) ? Username : PharmacyName;
 }
-ین کلاس مستقیماً به UI بایند می‌شود و
-public sealed class TtacSavedLoginDisplayRow
-{
-    public string Username { get; set; } = string.Empty;
-    public string PharmacyName { get; set; } = string.Empty;
-    public string DisplayLabel => string.IsNullOrWhiteSpace(PharmacyName) ? Username : PharmacyName;
-}
