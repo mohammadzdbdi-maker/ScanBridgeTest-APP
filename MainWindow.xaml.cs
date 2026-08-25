@@ -429,7 +429,9 @@ nQIDAQAB
                         PriceGenericInput.Text = "";
                         PriceBarcodeInput.Text = incomingBarcode;
                         _priceActiveField = "barcode";
+                        PriceSearchInputsPanel.Visibility = Visibility.Visible;
                         PriceBarcodeInput.Focus();
+                        PriceBarcodeInput.CaretIndex = incomingBarcode.Length;
                         _ = RunPriceLookupAsync(incomingBarcode, isFromScan: true);
                     });
                     return;
@@ -11841,9 +11843,42 @@ nQIDAQAB
         }));
     }
 
+    // ================= پنجره نتیجه قیمت =================
+
+    private void ShowPriceResultWindow(Services.PriceLookupService.PriceResult result)
+    {
+        PriceResultFaName.Text = string.IsNullOrWhiteSpace(result.FaName) ? "—" : result.FaName;
+        PriceResultEnName.Text = string.IsNullOrWhiteSpace(result.EnName) ? "—" : result.EnName;
+        PriceResultGenericCode.Text = string.IsNullOrWhiteSpace(result.GenericCode) ? "—" : result.GenericCode;
+        PriceResultPackageCount.Text = string.IsNullOrWhiteSpace(result.PackageCount) ? "—" : result.PackageCount;
+        PriceResultBrandOwner.Text = string.IsNullOrWhiteSpace(result.BrandOwner) ? "—" : result.BrandOwner;
+        PriceResultNotDrugWarning.Visibility = result.FoundButNotDrugSubgroup ? Visibility.Visible : Visibility.Collapsed;
+        PriceResultPriceBox.Visibility = result.TotalPriceRial > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (result.TotalPriceRial > 0)
+            PriceResultPriceText.Text = result.TotalPriceRial.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+        PriceResultOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void ClosePriceResult()
+    {
+        PriceResultOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void PriceResultCloseButton_Click(object sender, RoutedEventArgs e) => ClosePriceResult();
+
+    private void PriceResultOverlay_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape || e.Key == System.Windows.Input.Key.Enter)
+        {
+            e.Handled = true;
+            ClosePriceResult();
+        }
+    }
+
     // ================= استعلام قیمت فرآورده از تی‌تک =================
 
     private Services.PriceLookupService? _priceLookupService;
+    private string _lastScannedIrc = "";
 
     private Services.PriceLookupService PriceLookup => _priceLookupService ??= new Services.PriceLookupService();
 
@@ -11887,10 +11922,22 @@ nQIDAQAB
     {
         if (sender is System.Windows.Controls.Button btn && btn.Tag is TtTeckHistoryRow row && !string.IsNullOrWhiteSpace(row.Barcode))
         {
-            // از این مسیر فقط نتیجه نشان داده می‌شود — بخش جست‌وجو مخفی است
-            OpenPriceLookup("بارکد: " + row.Barcode);
-            PriceSearchInputsPanel.Visibility = Visibility.Collapsed;
-            await RunPriceLookupAsync(row.Barcode, isFromScan: true);
+            // سرعت: اگر IRC از استعلام اولیه معلوم است، مستقیم برو
+            string? irc = _lastScannedIrc;
+            if (string.IsNullOrWhiteSpace(irc))
+            {
+                irc = await PriceLookup.GetIrcFromBarcodeAsync(row.Barcode, PriceLookupToken);
+            }
+            if (!string.IsNullOrWhiteSpace(irc))
+            {
+                var result = await PriceLookup.LookupByIrcAsync(irc, PriceLookupToken);
+                ShowPriceResult(result);
+            }
+            else
+            {
+                var result = await PriceLookup.LookupByBarcodeAsync(row.Barcode, PriceLookupToken);
+                ShowPriceResult(result);
+            }
             return;
         }
 
@@ -12065,17 +12112,32 @@ nQIDAQAB
                 {
                     if (sel.HasDirectPrice)
                     {
-                        // اطلاعات کامل از همان پاسخ (بدون تماس مجدد به سرور)
-                        ShowPriceResult(new Services.PriceLookupService.PriceResult
+                        string en = "", owner = "", genCode = "", pack = "", ptype = "";
+                        try
+                        {
+                            if (sel.FullInfo.ValueKind == System.Text.Json.JsonValueKind.Object)
+                            {
+                                en = sel.FullInfo.TryGetProperty("EnBrandName", out var enEl) ? (enEl.GetString() ?? "") : "";
+                                owner = sel.FullInfo.TryGetProperty("FaBrandOwnerName", out var owEl) ? (owEl.GetString() ?? "") : "";
+                                genCode = sel.FullInfo.TryGetProperty("DrugGenericCode", out var gcEl) ? gcEl.GetRawText() : "";
+                                pack = sel.FullInfo.TryGetProperty("PackageCount", out var pcEl) ? pcEl.GetRawText() : "";
+                                ptype = sel.FullInfo.TryGetProperty("ProductType", out var ptEl) ? (ptEl.GetString() ?? "") : "";
+                            }
+                        }
+                        catch { }
+                        bool notDrug = ptype.Length > 0 && !ptype.Contains("\u062f\u0627\u0631\u0648");
+                        ShowPriceResultWindow(new Services.PriceLookupService.PriceResult
                         {
                             Success = true,
                             FaName = sel.Title,
-                            BrandOwner = "",
-                            GenericCode = "",
-                            PackageCount = "",
-                            ProductType = "زیر فرآورده دارو",
+                            EnName = en,
+                            BrandOwner = owner,
+                            GenericCode = genCode,
+                            PackageCount = pack,
+                            ProductType = ptype,
                             ConsumerPricePerUnit = sel.ConsumerPricePerUnit,
                             TotalPriceRial = sel.TotalPriceRial,
+                            FoundButNotDrugSubgroup = notDrug,
                         });
                     }
                     else if (sel.ProductId > 0)
@@ -12105,7 +12167,8 @@ nQIDAQAB
             FontSize = fontSize,
             Foreground = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(fg),
             TextWrapping = System.Windows.TextWrapping.NoWrap,
-            TextTrimming = System.Windows.TextTrimming.CharacterEllipsis,
+            TextTrimming = System.Windows.TextTrimming.None,
+            MaxWidth = 380,
             VerticalAlignment = System.Windows.VerticalAlignment.Center,
             FontWeight = bold ? System.Windows.FontWeights.Bold : System.Windows.FontWeights.Normal,
         };
@@ -12191,6 +12254,20 @@ nQIDAQAB
     }
 
     private void ShowPriceResult(Services.PriceLookupService.PriceResult result)
+    {
+        if (!result.Success)
+        {
+            PriceLookupStatusText.Visibility = Visibility.Visible;
+            PriceLookupStatusText.Text = result.Message;
+            return;
+        }
+
+        ShowPriceResultWindow(result);
+        return;
+    }
+
+    [System.Obsolete]
+    private void ShowPriceResultOld(Services.PriceLookupService.PriceResult result)
     {
         PriceLookupStatusText.Visibility = Visibility.Visible;
 

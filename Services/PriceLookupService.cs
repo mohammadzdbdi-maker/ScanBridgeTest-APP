@@ -373,7 +373,7 @@ public sealed class PriceLookupService
             {
                 if (item.ValueKind != JsonValueKind.Object)
                     continue;
-                long id = (long)GetDecimal(item, "ProductId", "productId", "id", "Id");
+                long id = (long)GetDecimal(item, "Id", "id", "ProductId", "productId");
                 if (id <= 0)
                     continue;
                 string fa = GetString(item, "FaBrandName", "faBrandName", "PersianName", "persianName");
@@ -393,6 +393,18 @@ public sealed class PriceLookupService
         {
             return list;
         }
+    }
+
+    /// <summary>
+    /// مسیر سریع: اگر IRC از قبل معلوم است (مثلاً از استعلام اولیه تی‌تک بعد از اسکن)،
+    /// مستقیم جست‌وجو کن بدون رفتن به InstanceCatalog.
+    /// </summary>
+    public async Task<PriceResult> LookupByIrcAsync(string irc, string? token = null)
+    {
+        var products = await SearchProductsAsync(irc, token);
+        if (products.Count == 0)
+            return new PriceResult { Success = false, Message = "❌ فرآورده‌ای برای IRC «" + irc + "» یافت نشد" };
+        return await GetProductDetailsAsync(products[0].ProductId, token);
     }
 
     /// <summary>مسیر کامل بارکد → قیمت (کاتالوگ + انتخاب اولین فرآورده)</summary>
@@ -517,7 +529,7 @@ public sealed class PriceLookupService
                 if (id <= 0)
                     continue;
 
-                string fa = GetString(item, "FaBrandName", "faBrandName", "PersianName", "persianName", "nameFa", "FaName", "faName", "ProductName", "productName", "Title", "title", "Name", "name", "text", "label");
+                string fa = GetString(item, "Name", "name", "FaBrandName", "faBrandName", "PersianName", "persianName", "nameFa", "FaName", "faName", "ProductName", "productName", "Title", "title");
                 string en = GetString(item, "EnBrandName", "enBrandName", "EnglishName", "englishName", "EnName", "enName");
                 string irc = GetString(item, "Irc", "irc");
                 string owner = GetString(item, "FaBrandOwnerName", "faBrandOwnerName");

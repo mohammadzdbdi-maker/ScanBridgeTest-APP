@@ -1072,6 +1072,60 @@
              ShowUpdateConfirmOverlayAsync در MainWindow.xaml.cs که با TaskCompletionSource منتظر
              کلیک کاربر می‌ماند. Panel.ZIndex بالا دارد تا حتی وقتی MessagesOverlay هم باز است، بالاتر
              دیده شود. -->
+        <Grid x:Name="PriceResultOverlay" Panel.ZIndex="420" Background="#80000000" Visibility="Collapsed" PreviewKeyDown="PriceResultOverlay_PreviewKeyDown">
+    <Border Background="White" CornerRadius="24" Padding="24" Width="520" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <StackPanel>
+            <Grid Margin="0,0,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="PriceResultTitleText" Text="&#1581;&#1591;&#1575;&#1604;&#1593; &#1608;&#1583;&#1575;&#1604;&#1575; &#1601;&#1606;&#1587;&#1608;&#1585;&#1607;" FontSize="20" FontWeight="Bold" Foreground="#854D0E" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Content="&#1582;&#1575;&#1605;&#1608;&#1588;" Click="PriceResultCloseButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#F3F4F6" Foreground="#374151" Width="34" Height="34" Padding="0" />
+            </Grid>
+            <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+                    <Border x:Name="PriceResultNotDrugWarning" Background="#FEF2F2" BorderBrush="#FCA5A5" BorderThickness="1" CornerRadius="14" Padding="12" Margin="0,0,0,10" Visibility="Collapsed">
+                        <TextBlock x:Name="PriceResultWarningText" Text="&#1575;&#1610;&#1606; &#1605;&#1581;&#1589;&#1608;&#1604; &#1583;&#1585; &#1586;&#1610;&#1585;&#1711;&#1585;&#1608;&#1607; &#1583;&#1575;&#1585;&#1608;&#1610;&#1610; &#1606;&#1610;&#1587;&#1578;" FontSize="13" Foreground="#B91C1C" TextWrapping="Wrap" />
+                    </Border>
+                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="14" Padding="14">
+                        <StackPanel>
+                            <TextBlock Text="&#1606;&#1575;&#1605; &#1601;&#1575;&#1585;&#1587;&#1610;" FontSize="10.5" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                            <TextBlock x:Name="PriceResultFaName" Text="-" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" TextWrapping="Wrap" Margin="2,0,0,10" />
+                            <TextBlock Text="&#1606;&#1575;&#1605; &#1575;&#1606;&#1711;&#1604;&#1610;&#1587;&#1610;" FontSize="10.5" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                            <TextBlock x:Name="PriceResultEnName" Text="-" FontSize="14" Foreground="#0F172A" TextWrapping="Wrap" Margin="2,0,0,10" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="&#1705;&#1583; &#1688;&#1606;&#1585;&#1740;&#1705;" FontSize="10.5" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                                    <TextBlock x:Name="PriceResultGenericCode" Text="-" FontSize="14" Foreground="#0F172A" FlowDirection="LeftToRight" Margin="2,0,0,10" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="&#1578;&#1593;&#1583;&#1575;&#1583; &#1583;&#1585; &#1576;&#1587;&#1578;&#1607;" FontSize="10.5" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                                    <TextBlock x:Name="PriceResultPackageCount" Text="-" FontSize="14" Foreground="#0F172A" FlowDirection="LeftToRight" Margin="2,0,0,10" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Text="&#1605;&#1575;&#1604;&#1705; &#1576;&#1585;&#1606;&#1583;" FontSize="10.5" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                            <TextBlock x:Name="PriceResultBrandOwner" Text="-" FontSize="14" Foreground="#0F172A" TextWrapping="Wrap" Margin="2,0,0,6" />
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="PriceResultPriceBox" Background="#F0FDF4" BorderBrush="#86EFAC" BorderThickness="1.5" CornerRadius="14" Padding="14" Margin="0,12,0,0">
+                        <StackPanel HorizontalAlignment="Center">
+                            <TextBlock Text="&#1602;&#1610;&#1605;&#1578; &#1605;&#1589;&#1585;&#1601; &#1705;&#1606;&#1606;&#1583;&#1607;" FontSize="12" FontWeight="Bold" Foreground="#15803D" HorizontalAlignment="Center" Margin="0,0,0,4" />
+                            <TextBlock x:Name="PriceResultPriceText" Text="-" FontSize="32" FontWeight="ExtraBold" Foreground="#16A34A" FlowDirection="LeftToRight" HorizontalAlignment="Center" />
+                            <TextBlock Text="&#1585;&#1610;&#1575;&#1604;" FontSize="13" FontWeight="Bold" Foreground="#15803D" HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </StackPanel>
+    </Border>
+</Grid>
+
         <Grid x:Name="PriceLookupOverlay"
               Panel.ZIndex="400"
               PreviewKeyDown="PriceLookupOverlay_PreviewKeyDown"
