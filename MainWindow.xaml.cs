@@ -11840,8 +11840,11 @@ nQIDAQAB
 
     // ================= پنجره نتیجه قیمت =================
 
+    private Services.PriceLookupService.PriceResult? _lastPriceResult;
+
     private void ShowPriceResultWindow(Services.PriceLookupService.PriceResult result)
     {
+        _lastPriceResult = result;
         // عنوان: همیشه «💰 استعلام قیمت» نشان بده
         PriceResultTitleText.Text = "💰 استعلام قیمت";
         PriceResultFaName.Text = string.IsNullOrWhiteSpace(result.FaName) ? "—" : result.FaName;
@@ -11858,6 +11861,8 @@ nQIDAQAB
 
     private void ClosePriceResult()
     {
+        ClosePriceCustomQtyResult();
+        ClosePriceCustomQty();
         PriceResultOverlay.Visibility = Visibility.Collapsed;
     }
 
@@ -11865,10 +11870,113 @@ nQIDAQAB
 
     private void PriceResultOverlay_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
+        if (PriceCustomQtyOverlay.Visibility == Visibility.Visible || PriceCustomQtyResultOverlay.Visibility == Visibility.Visible)
+            return;
         if (e.Key == System.Windows.Input.Key.Escape || e.Key == System.Windows.Input.Key.Enter)
         {
             e.Handled = true;
             ClosePriceResult();
+        }
+    }
+
+    private void PriceCustomQtyButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastPriceResult == null || _lastPriceResult.TotalPriceRial <= 0)
+        {
+            PriceCustomQtyErrorText.Text = "برای این فرآورده قیمت مصرف‌کننده در تی‌تک ثبت نشده است.";
+            PriceCustomQtyErrorText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            PriceCustomQtyErrorText.Text = "";
+            PriceCustomQtyErrorText.Visibility = Visibility.Collapsed;
+        }
+
+        PriceCustomQtyInput.Text = "";
+        PriceCustomQtyOverlay.Visibility = Visibility.Visible;
+        PriceCustomQtyInput.Focus();
+    }
+
+    private void ClosePriceCustomQty()
+    {
+        PriceCustomQtyOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void PriceCustomQtyCloseButton_Click(object sender, RoutedEventArgs e) => ClosePriceCustomQty();
+
+    private void PriceCustomQtyOverlay_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape)
+        {
+            e.Handled = true;
+            ClosePriceCustomQty();
+            return;
+        }
+        if (e.Key == System.Windows.Input.Key.Enter)
+        {
+            e.Handled = true;
+            ConfirmPriceCustomQty();
+        }
+    }
+
+    private void PriceCustomQtyConfirmButton_Click(object sender, RoutedEventArgs e) => ConfirmPriceCustomQty();
+
+    private void ConfirmPriceCustomQty()
+    {
+        if (_lastPriceResult == null)
+        {
+            PriceCustomQtyErrorText.Text = "ابتدا یک فرآورده را استعلام کنید.";
+            PriceCustomQtyErrorText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        decimal unit = _lastPriceResult.TotalPriceRial > 0
+            ? _lastPriceResult.TotalPriceRial
+            : _lastPriceResult.ConsumerPricePerUnit;
+        if (unit <= 0)
+        {
+            PriceCustomQtyErrorText.Text = "قیمت مصرف‌کننده برای این فرآورده موجود نیست.";
+            PriceCustomQtyErrorText.Visibility = Visibility.Visible;
+            return;
+        }
+
+        string raw = ToEnglishDigits((PriceCustomQtyInput.Text ?? "").Trim()).Replace(",", "");
+        if (!decimal.TryParse(raw, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var qty) || qty <= 0)
+        {
+            PriceCustomQtyErrorText.Text = "یک تعداد معتبر بزرگ‌تر از صفر وارد کنید.";
+            PriceCustomQtyErrorText.Visibility = Visibility.Visible;
+            PriceCustomQtyInput.Focus();
+            PriceCustomQtyInput.SelectAll();
+            return;
+        }
+
+        PriceCustomQtyErrorText.Visibility = Visibility.Collapsed;
+        Services.PriceLookupService.ParseNameParts(_lastPriceResult.FaName ?? "", out _, out var form, out _);
+        if (string.IsNullOrWhiteSpace(form))
+            form = _lastPriceResult.ProductType;
+
+        decimal total = qty * unit;
+        PriceQtyResultFaName.Text = string.IsNullOrWhiteSpace(_lastPriceResult.FaName) ? "—" : _lastPriceResult.FaName;
+        PriceQtyResultEnName.Text = string.IsNullOrWhiteSpace(_lastPriceResult.EnName) ? "—" : _lastPriceResult.EnName;
+        PriceQtyResultForm.Text = string.IsNullOrWhiteSpace(form) ? "—" : form;
+        PriceQtyResultCount.Text = qty.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        PriceQtyResultTotal.Text = total.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+        PriceCustomQtyResultOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void ClosePriceCustomQtyResult()
+    {
+        PriceCustomQtyResultOverlay.Visibility = Visibility.Collapsed;
+    }
+
+    private void PriceCustomQtyResultCloseButton_Click(object sender, RoutedEventArgs e) => ClosePriceCustomQtyResult();
+
+    private void PriceCustomQtyResultOverlay_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape || e.Key == System.Windows.Input.Key.Enter)
+        {
+            e.Handled = true;
+            ClosePriceCustomQtyResult();
         }
     }
 
