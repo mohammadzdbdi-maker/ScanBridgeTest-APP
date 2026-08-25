@@ -945,28 +945,41 @@ public sealed class ScanBridgeService : IDisposable
                 {
                     string barcode = item.Barcode;
                     string deviceName = item.DeviceName;
-                    try
+                    bool suppressKeyboard = SuppressKeyboardInjection;
+
+                    if (!suppressKeyboard)
                     {
-                        KeyboardInjector.TypeText(barcode);
-                        KeyboardInjector.PressEnter();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"[{DateTime.UtcNow:O}] SendInput failed: {ex.Message}");
                         try
                         {
-                            KeyboardInjector.SendKeysFallback(barcode);
+                            KeyboardInjector.TypeText(barcode);
                             KeyboardInjector.PressEnter();
                         }
-                        catch (Exception fallbackEx)
+                        catch (Exception ex)
                         {
-                            Console.WriteLine($"[{DateTime.UtcNow:O}] Keyboard injection fallback failed: {fallbackEx.Message}");
+                            Console.WriteLine($"[{DateTime.UtcNow:O}] SendInput failed: {ex.Message}");
+                            try
+                            {
+                                KeyboardInjector.SendKeysFallback(barcode);
+                                KeyboardInjector.PressEnter();
+                            }
+                            catch (Exception fallbackEx)
+                            {
+                                Console.WriteLine($"[{DateTime.UtcNow:O}] Keyboard injection fallback failed: {fallbackEx.Message}");
+                            }
                         }
                     }
 
                     try
                     {
-                        AppendScan(barcode, deviceName);
+                        if (suppressKeyboard)
+                        {
+                            // پنجره‌ی قیمت باز است: فقط به UI بده، تاریخچه و تایپ کیبورد نه.
+                            ScanReceived?.Invoke(this, new ScanReceivedEventArgs(barcode, DateTime.UtcNow, deviceName));
+                        }
+                        else
+                        {
+                            AppendScan(barcode, deviceName);
+                        }
                     }
                     catch (Exception ex)
                     {
