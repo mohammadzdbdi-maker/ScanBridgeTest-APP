@@ -1150,7 +1150,7 @@
                         <TextBlock Text="تعداد دلخواه" FontSize="20" FontWeight="Bold" Foreground="#854D0E" VerticalAlignment="Center" />
                         <Button Grid.Column="1" Content="✕" Click="PriceCustomQtyCloseButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#DC2626" Foreground="White" Width="34" Height="34" Padding="0" FontWeight="Bold" FontSize="16" />
                     </Grid>
-                    <TextBlock Text="تعداد را وارد کنید تا در قیمت مصرف‌کننده ضرب شود." FontSize="13" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,10" />
+                    <TextBlock Text="تعداد را وارد کنید تا در قیمت یک عدد (مصرف‌کننده) ضرب شود؛ نه قیمت کل جعبه." FontSize="13" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,10" />
                     <TextBox x:Name="PriceCustomQtyInput" Height="42" FontSize="18" Padding="10,0" VerticalContentAlignment="Center" FlowDirection="LeftToRight" BorderBrush="#CBD5E1" BorderThickness="1.5" />
                     <TextBlock x:Name="PriceCustomQtyErrorText" Text="" FontSize="12" Foreground="#DC2626" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
                     <Button Content="محاسبه قیمت" Click="PriceCustomQtyConfirmButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#16A34A" Foreground="White" FontWeight="Bold" Height="42" Margin="0,14,0,0" />
@@ -1177,6 +1177,8 @@
                             <TextBlock x:Name="PriceQtyResultEnName" Text="-" FontSize="14" Foreground="#0F172A" TextWrapping="Wrap" Margin="2,0,0,10" />
                             <TextBlock Text="فرم دارو" FontSize="10.5" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
                             <TextBlock x:Name="PriceQtyResultForm" Text="-" FontSize="14" Foreground="#0F172A" TextWrapping="Wrap" Margin="2,0,0,10" />
+                            <TextBlock Text="شرکت دارویی" FontSize="10.5" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
+                            <TextBlock x:Name="PriceQtyResultCompany" Text="-" FontSize="14" Foreground="#0F172A" TextWrapping="Wrap" Margin="2,0,0,10" />
                             <TextBlock Text="تعداد" FontSize="10.5" FontWeight="Bold" Foreground="#64748B" Margin="2,0,0,2" />
                             <TextBlock x:Name="PriceQtyResultCount" Text="-" FontSize="14" Foreground="#0F172A" FlowDirection="LeftToRight" Margin="2,0,0,0" />
                         </StackPanel>

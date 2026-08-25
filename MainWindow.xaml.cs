@@ -11881,7 +11881,7 @@ nQIDAQAB
 
     private void PriceCustomQtyButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastPriceResult == null || _lastPriceResult.TotalPriceRial <= 0)
+        if (_lastPriceResult == null || GetUnitConsumerPrice(_lastPriceResult) <= 0)
         {
             PriceCustomQtyErrorText.Text = "برای این فرآورده قیمت مصرف‌کننده در تی‌تک ثبت نشده است.";
             PriceCustomQtyErrorText.Visibility = Visibility.Visible;
@@ -11921,6 +11921,22 @@ nQIDAQAB
 
     private void PriceCustomQtyConfirmButton_Click(object sender, RoutedEventArgs e) => ConfirmPriceCustomQty();
 
+    /// <summary>قیمت مصرف‌کننده برای ۱ عدد — نه قیمت کل جعبه.</summary>
+    private static decimal GetUnitConsumerPrice(Services.PriceLookupService.PriceResult result)
+    {
+        if (result.ConsumerPricePerUnit > 0)
+            return result.ConsumerPricePerUnit;
+
+        if (result.TotalPriceRial <= 0)
+            return 0;
+
+        string packRaw = ToEnglishDigits((result.PackageCount ?? "").Trim()).Replace(",", "");
+        if (decimal.TryParse(packRaw, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var pack) && pack > 1)
+            return result.TotalPriceRial / pack;
+
+        return 0;
+    }
+
     private void ConfirmPriceCustomQty()
     {
         if (_lastPriceResult == null)
@@ -11930,12 +11946,10 @@ nQIDAQAB
             return;
         }
 
-        decimal unit = _lastPriceResult.TotalPriceRial > 0
-            ? _lastPriceResult.TotalPriceRial
-            : _lastPriceResult.ConsumerPricePerUnit;
+        decimal unit = GetUnitConsumerPrice(_lastPriceResult);
         if (unit <= 0)
         {
-            PriceCustomQtyErrorText.Text = "قیمت مصرف‌کننده برای این فرآورده موجود نیست.";
+            PriceCustomQtyErrorText.Text = "قیمت یک عدد (مصرف‌کننده) برای این فرآورده موجود نیست.";
             PriceCustomQtyErrorText.Visibility = Visibility.Visible;
             return;
         }
@@ -11959,6 +11973,7 @@ nQIDAQAB
         PriceQtyResultFaName.Text = string.IsNullOrWhiteSpace(_lastPriceResult.FaName) ? "—" : _lastPriceResult.FaName;
         PriceQtyResultEnName.Text = string.IsNullOrWhiteSpace(_lastPriceResult.EnName) ? "—" : _lastPriceResult.EnName;
         PriceQtyResultForm.Text = string.IsNullOrWhiteSpace(form) ? "—" : form;
+        PriceQtyResultCompany.Text = string.IsNullOrWhiteSpace(_lastPriceResult.BrandOwner) ? "—" : _lastPriceResult.BrandOwner;
         PriceQtyResultCount.Text = qty.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
         PriceQtyResultTotal.Text = total.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
         PriceCustomQtyResultOverlay.Visibility = Visibility.Visible;
