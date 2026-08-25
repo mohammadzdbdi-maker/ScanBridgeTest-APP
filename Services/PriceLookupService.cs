@@ -43,6 +43,11 @@ public sealed class PriceLookupService
         public string Brand { get; set; } = "";
         public string Form { get; set; } = "";
         public string Dose { get; set; } = "";
+        // اگر از GetProductsForPharmacies آمده باشد، قیمت و اطلاعات کامل همین‌جا موجود است
+        public decimal ConsumerPricePerUnit { get; set; }
+        public decimal TotalPriceRial { get; set; }
+        public JsonElement FullInfo { get; set; }
+        public bool HasDirectPrice => ConsumerPricePerUnit > 0;
     }
 
     public sealed class PriceResult
@@ -255,31 +260,86 @@ public sealed class PriceLookupService
     /// </summary>
     public async Task<List<ProductSummary>> SearchByGenericCodeAsync(string code, string? token = null)
     {
-        var variants = new[]
+        // پارامتر درست که از HAR واقعی درآمد: DrugGenericCode روی GetProductsForPharmacies
+        try
         {
-            $"{CompactProductsUrl}?GenericCode={Uri.EscapeDataString(code)}&PageSize=50&PageNumber=1",
-            $"{CompactProductsUrl}?DrugGenericCode={Uri.EscapeDataString(code)}&PageSize=50&PageNumber=1",
-            $"{CompactProductsUrl}?Name={Uri.EscapeDataString(code)}&PageSize=50&PageNumber=1",
-        };
-
-        foreach (var url in variants)
-        {
-            try
+            string url = $"{ProductsForPharmaciesUrl}?searchExp=&DrugGenericCode={Uri.EscapeDataString(code)}&PageSize=50&PageNumber=1";
+            using var req = BuildGet(url, token);
+            using var resp = await _http.SendAsync(req);
+            string body = await resp.Content.ReadAsStringAsync();
+            if (resp.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(body))
             {
-                using var req = BuildGet(url, token);
-                using var resp = await _http.SendAsync(req);
-                string body = await resp.Content.ReadAsStringAsync();
-                if (!resp.IsSuccessStatusCode || string.IsNullOrWhiteSpace(body))
-                    continue;
+                var list = ParseFullProductsList(body);
+                if (list.Count > 0)
+                    return list;
+            }
+        }
+        catch { }
+
+        // اگر پاسخ خالی بود، شاید کد به‌صورت Id (نه Code) جست‌وجو شود
+        try
+        {
+            string url = $"{CompactProductsUrl}?Name={Uri.EscapeDataString(code)}&PageSize=50&PageNumber=1";
+            using var req = BuildGet(url, token);
+            using var resp = await _http.SendAsync(req);
+            string body = await resp.Content.ReadAsStringAsync();
+            if (resp.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(body))
+            {
                 var list = ParseCompactList(body);
                 if (list.Count > 0)
                     return list;
             }
-            catch { }
         }
+        catch { }
 
-        // آخرین تلاش: جست‌وجوی آزاد
-        return await SearchByExpressionAsync(code, token);
+        return new List<ProductSummary>();
+    }
+
+    /// <summary>پارس پاسخ GetProductsForPharmacies — همه‌ی فیلدها (اسم، شکل، دوز، IRC) موجود است</summary>
+    private List<ProductSummary> ParseFullProductsList(string json)
+    {
+        var list = new List<ProductSummary>();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var items = ExtractArray(root, "Result", "result", "data", "Data", "items", "Items")
+                        ?? (root.ValueKind == JsonValueKind.Array ? root : ExtractAnyArray(root));
+            if (items is null)
+                return list;
+
+            foreach (var item in items.Value.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                    continue;
+                // این endpoint فقط Irc دارد، ProductId ندارد — به‌جای ProductId از Irc به‌عنوان کلید استفاده
+                // می‌کنیم (SearchByExpression و GetProductDetails با ProductId کار می‌کنند، پس برای این
+                // لیست‌ها مستقیماً از همین داده‌ها استفاده می‌کنیم و نیاز به ProductId نداریم)
+                string fa = GetString(item, "FaBrandName", "faBrandName");
+                string en = GetString(item, "EnBrandName", "enBrandName");
+                string irc = GetString(item, "Irc", "irc");
+                decimal consumerPrice = GetDecimal(item, "ConsumerPrice", "consumerPrice");
+                decimal pack = GetDecimal(item, "PackageCount", "packageCount");
+
+                string title = !string.IsNullOrWhiteSpace(fa) ? fa : (!string.IsNullOrWhiteSpace(en) ? en : "فرآورده " + irc);
+                ParseNameParts(title, out var brand, out var form, out var dose);
+
+                list.Add(new ProductSummary
+                {
+                    ProductId = 0, // Irc-based، نیاز به ProductId نیست چون قیمت همین‌جا هست
+                    Title = title,
+                    Subtitle = string.IsNullOrWhiteSpace(irc) ? "" : "IRC: " + irc,
+                    Brand = brand,
+                    Form = form,
+                    Dose = dose,
+                    ConsumerPricePerUnit = consumerPrice,
+                    TotalPriceRial = consumerPrice > 0 && pack > 0 ? consumerPrice * pack : consumerPrice,
+                    FullInfo = item,
+                });
+            }
+        }
+        catch { }
+        return list;
     }
 
     /// <summary>

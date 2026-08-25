@@ -429,6 +429,7 @@ nQIDAQAB
                         PriceGenericInput.Text = "";
                         PriceBarcodeInput.Text = incomingBarcode;
                         _priceActiveField = "barcode";
+                        PriceBarcodeInput.Focus();
                         _ = RunPriceLookupAsync(incomingBarcode, isFromScan: true);
                     });
                     return;
@@ -11992,8 +11993,24 @@ nQIDAQAB
 
         if (products.Count == 1)
         {
-            await RunProductDetailsAsync(products[0].ProductId, products[0].Title);
-            return;
+            var single = products[0];
+            if (single.HasDirectPrice)
+            {
+                ShowPriceResult(new Services.PriceLookupService.PriceResult
+                {
+                    Success = true,
+                    FaName = single.Title,
+                    ProductType = "زیر فرآورده دارو",
+                    ConsumerPricePerUnit = single.ConsumerPricePerUnit,
+                    TotalPriceRial = single.TotalPriceRial,
+                });
+                return;
+            }
+            if (single.ProductId > 0)
+            {
+                await RunProductDetailsAsync(single.ProductId, single.Title);
+                return;
+            }
         }
 
         // مرتب‌سازی طبق درخواست: شکل دارویی → اسم دارو → دوز → IRC
@@ -12045,7 +12062,27 @@ nQIDAQAB
             btn.Click += async (s, args) =>
             {
                 if (s is System.Windows.Controls.Button b && b.Tag is Services.PriceLookupService.ProductSummary sel)
-                    await RunProductDetailsAsync(sel.ProductId, sel.Title);
+                {
+                    if (sel.HasDirectPrice)
+                    {
+                        // اطلاعات کامل از همان پاسخ (بدون تماس مجدد به سرور)
+                        ShowPriceResult(new Services.PriceLookupService.PriceResult
+                        {
+                            Success = true,
+                            FaName = sel.Title,
+                            BrandOwner = "",
+                            GenericCode = "",
+                            PackageCount = "",
+                            ProductType = "زیر فرآورده دارو",
+                            ConsumerPricePerUnit = sel.ConsumerPricePerUnit,
+                            TotalPriceRial = sel.TotalPriceRial,
+                        });
+                    }
+                    else if (sel.ProductId > 0)
+                    {
+                        await RunProductDetailsAsync(sel.ProductId, sel.Title);
+                    }
+                }
             };
             PriceLookupResultsList.Children.Add(btn);
         }
