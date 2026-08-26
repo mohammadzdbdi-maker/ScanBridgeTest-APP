@@ -13269,6 +13269,7 @@ private void SaveTtTeckSettings()
             _lastTtTeckWebViewUrl = url;
             _ttacBrowserOpenedAtUtc = DateTime.UtcNow;
             _ttacBrowserSlowWarningShown = false;
+            _ttacLoginSuccessHandled = false;
             await EnsureTtTeckWebViewAsync();
             TtTeckWebView.Source = new Uri(url);
             TtTeckWebViewAddressText.Text = (_localization.GetString("ConnectingToTTAC")) + url;
@@ -13343,17 +13344,7 @@ private void SaveTtTeckSettings()
                 {
                     await Dispatcher.BeginInvoke(new Action(() =>
                     {
-                        // ورود موفق شد - هشدار انقضای نشست را پاک کن، عملیات در انتظار (اگر هست)
-                        // را خودکار ادامه بده و پنل قبلی دوباره باز می‌شود.
-                        bool wasQuickLogin = _ttacQuickLoginInProgress;
-                        _ttacQuickLoginInProgress = false;
-                        string? pendingLabel = _pendingTtacRetryLabel;
-                        ClearTtacSessionExpiredWarning();
-                        UpdateTtacConnectionStatusUI();
-                        if (wasQuickLogin)
-                            ShowTtacLoginSuccessBanner(pendingLabel);
-                        if (_pendingTtacRetryAction != null)
-                            _ = RunPendingTtacRetryIfAnyAsync();
+                        CompleteTtacInternalBrowserLogin(token, 5400);
                     }));
                     return;
                 }
@@ -13663,7 +13654,18 @@ private void SaveTtTeckSettings()
                 {
                     using var doc = JsonDocument.Parse(e.WebMessageAsJson);
                     var root = doc.RootElement;
-                    if (root.TryGetProperty("type", out var typeProp) && typeProp.GetString() == "saveTtacLogin"
+                    if (!root.TryGetProperty("type", out var typeProp))
+                        return;
+
+                    string? messageType = typeProp.GetString();
+                    if (messageType == "ttacTokenFromUrl")
+                    {
+                        string href = root.TryGetProperty("href", out var hrefProp) ? (hrefProp.GetString() ?? string.Empty) : string.Empty;
+                        Dispatcher.BeginInvoke(new Action(() => TryFinishTtacInternalBrowserLoginFromUrl(href)));
+                        return;
+                    }
+
+                    if (messageType == "saveTtacLogin"
                         && root.TryGetProperty("username", out var uProp) && root.TryGetProperty("password", out var pProp))
                     {
                         string username = (uProp.GetString() ?? string.Empty).Trim();
@@ -13696,6 +13698,60 @@ private void SaveTtTeckSettings()
         catch { }
     }
 
+    // به‌محض دیدن access_token در آدرس (ریدایرکت callback)، پنجره را می‌بندد؛ دیگر منتظر
+    // لود کامل داشبورد سنگین تی‌تک نمی‌ماند.
+    private void TryFinishTtacInternalBrowserLoginFromUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return;
+        if (!TryExtractTokenFromUri(uri, out var urlTokenResult) || string.IsNullOrWhiteSpace(urlTokenResult.AccessToken))
+            return;
+
+        CompleteTtacInternalBrowserLogin(urlTokenResult.AccessToken, Math.Max(60, urlTokenResult.ExpiresInSeconds - 60));
+    }
+
+    private void CompleteTtacInternalBrowserLogin(string token, int expiresInSeconds)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return;
+
+        if (_ttacLoginSuccessHandled
+            && HasValidTtacToken()
+            && TtTeckWebViewOverlay.Visibility != Visibility.Visible)
+            return;
+
+        _ttacLoginSuccessHandled = true;
+
+        bool wasQuickLogin = _ttacQuickLoginInProgress;
+        _ttacQuickLoginInProgress = false;
+        string? pendingLabel = _pendingTtacRetryLabel;
+
+        // اول پنجره را ببند تا کاربر معطل لود داشبورد یا نوشتن فایل نشود.
+        if (TtTeckWebViewOverlay.Visibility == Visibility.Visible)
+        {
+            TtTeckWebViewOverlay.Visibility = Visibility.Collapsed;
+            MainContent.Effect = TtTeckRegistrationOverlay.Visibility == Visibility.Visible
+                || TtacPanelOverlay.Visibility == Visibility.Visible
+                || CargoDeliveryOverlay.Visibility == Visibility.Visible
+                || ReceiveStatusOverlay.Visibility == Visibility.Visible
+                ? new System.Windows.Media.Effects.BlurEffect { Radius = 18 }
+                : null;
+            if (TtTeckRegistrationOverlay.Visibility == Visibility.Visible)
+                TtTeckRegistrationResultText.Text = _localization.GetString("TTACLoginCompletedContinuingTheOperation");
+        }
+
+        ClearTtacSessionExpiredWarning();
+        ApplyTtacAccessToken(token, DateTime.UtcNow.AddSeconds(expiresInSeconds));
+
+        if (_pendingTtacRetryAction != null)
+            _ = RunPendingTtacRetryIfAnyAsync();
+
+        if (wasQuickLogin)
+            ShowTtacLoginSuccessBanner(pendingLabel);
+    }
+
     private async Task EnsureTtTeckWebViewAsync()
     {
         if (TtTeckWebView.CoreWebView2 != null)
@@ -13716,6 +13772,35 @@ private void SaveTtTeckSettings()
 
         EnableTtacWebViewAutofillAndPasswordSave();
         EnableTtacWebViewPasswordSaveOnIdp();
+
+        _ = TtTeckWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(@"
+(function(){
+  try {
+    function report() {
+      try {
+        var href = String(location.href || '');
+        if (href.indexOf('access_token') === -1) return;
+        if (window.chrome && window.chrome.webview) {
+          window.chrome.webview.postMessage({ type: 'ttacTokenFromUrl', href: href });
+        }
+      } catch (e) {}
+    }
+    report();
+    window.addEventListener('hashchange', report);
+    window.addEventListener('load', report);
+  } catch (e) {}
+})();");
+
+        TtTeckWebView.CoreWebView2.NavigationStarting += (_, e) =>
+        {
+            string uri = e.Uri;
+            Dispatcher.BeginInvoke(new Action(() => TryFinishTtacInternalBrowserLoginFromUrl(uri)));
+        };
+        TtTeckWebView.CoreWebView2.SourceChanged += (_, _) =>
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+                TryFinishTtacInternalBrowserLoginFromUrl(TtTeckWebView.Source?.ToString())));
+        };
 
         TtTeckWebView.CoreWebView2.NavigationCompleted += (_, args) =>
         {
@@ -13756,35 +13841,11 @@ private void SaveTtTeckSettings()
                     else
                     {
                         token = await GetTtacAccessTokenAsync(false);
-                    }                    if (!string.IsNullOrWhiteSpace(token))
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(token))
                     {
-                        bool wasQuickLogin = _ttacQuickLoginInProgress;
-                        _ttacQuickLoginInProgress = false;
-                        string? pendingLabel = _pendingTtacRetryLabel;
-                        ApplyTtacAccessToken(token, DateTime.UtcNow.AddSeconds(expiresIn));
-                        // ورود موفق شد - هشدار انقضای نشست پاک می‌شود.
-                        ClearTtacSessionExpiredWarning();
-                        if (TtTeckWebViewOverlay.Visibility == Visibility.Visible)
-                        {
-                            TtTeckWebViewOverlay.Visibility = Visibility.Collapsed;
-                            MainContent.Effect = TtTeckRegistrationOverlay.Visibility == Visibility.Visible || TtacPanelOverlay.Visibility == Visibility.Visible
-                                ? new System.Windows.Media.Effects.BlurEffect { Radius = 18 }
-                                : null;
-                            if (TtTeckRegistrationOverlay.Visibility == Visibility.Visible)
-                                TtTeckRegistrationResultText.Text = _localization.GetString("TTACLoginCompletedContinuingTheOperation");
-                        }
-
-                        // عملیات در انتظار را خودکار ادامه بده (پنل قبلی دوباره باز می‌شود و
-                        // همان کار ادامه پیدا می‌کند) - حتی اگر مرورگر داخلی قبل از این نقطه
-                        // بسته شده باشد.
-                        if (_pendingTtacRetryAction != null)
-                            await RunPendingTtacRetryIfAnyAsync();
-
-                        // اگر ورود از پنجره‌ی انتخاب داروخانه شروع شده بود، بنر سبز «ورود
-                        // موفق شد» را کوتاه داخل همان پنجره نشان بده (اگر عملیاتی در انتظار
-                        // بود، نامش هم داخل بنر می‌آید).
-                        if (wasQuickLogin)
-                            ShowTtacLoginSuccessBanner(pendingLabel);
+                        CompleteTtacInternalBrowserLogin(token, expiresIn);
                     }
                     else
                     {
