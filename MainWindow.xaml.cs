@@ -165,6 +165,8 @@ nQIDAQAB
     // وقتی ورود از پنجره‌ی انتخاب داروخانه شروع شده باشد true است؛ بعد از موفق شدن ورود، بنر
     // سبز «ورود موفق شد» داخل همان پنجره نشان داده می‌شود.
     private bool _ttacQuickLoginInProgress;
+    // جلوی اعمال دوباره‌ی توکن/بستن پنجره وقتی هم اسکریپت، هم ناوبری و هم مانیتور توکن را می‌بینند.
+    private bool _ttacLoginSuccessHandled;
     private readonly List<string> _queuedReceiveStatusBarcodes = new();
     private readonly HashSet<string> _receiveStatusKnownBarcodes = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _cargoDeliveryKnownBarcodes = new(StringComparer.OrdinalIgnoreCase);
