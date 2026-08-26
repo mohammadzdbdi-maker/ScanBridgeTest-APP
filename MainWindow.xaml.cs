@@ -2351,8 +2351,6 @@ nQIDAQAB
             tr.Cells.Add(CreatePdfCell(row.LotNumber, false));
             tr.Cells.Add(CreatePdfCell(row.Quantity, false));
             tr.Cells.Add(CreatePdfCell(row.SenderName, false));
-            tr.Cells.ACreatePdfCell(row.Quantity, false));
-            tr.Cells.Add(CreatePdfCell(row.SenderName, false));
             tr.Cells.Add(CreatePdfCell(row.StatusText, false));
         }
         printDialog.PrintDocument(((IDocumentPaginatorSource)document).DocumentPaginator, "Scanbridge Cargo Delivery");
