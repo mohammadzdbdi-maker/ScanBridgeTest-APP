@@ -12320,24 +12320,15 @@ nQIDAQAB
 
         foreach (var item in products)
         {
-            if (string.IsNullOrWhiteSpace(item.Form) && string.IsNullOrWhiteSpace(item.Dose) && !string.IsNullOrWhiteSpace(item.Title))
+            Services.PriceLookupService.ParseNameParts(item.Title, item.EnName, out var brand, out var form, out var dose);
+            if (!string.IsNullOrWhiteSpace(form) || !string.IsNullOrWhiteSpace(dose))
             {
-                Services.PriceLookupService.ParseNameParts(item.Title, out var brand, out var form, out var dose);
-                if (!string.IsNullOrWhiteSpace(form) || !string.IsNullOrWhiteSpace(dose))
-                {
-                    if (string.IsNullOrWhiteSpace(item.Brand) || item.Brand == item.Title)
-                        item.Brand = brand;
+                if (string.IsNullOrWhiteSpace(item.Brand) || item.Brand == item.Title)
+                    item.Brand = brand;
+                if (!string.IsNullOrWhiteSpace(form))
                     item.Form = form;
+                if (!string.IsNullOrWhiteSpace(dose))
                     item.Dose = dose;
-                }
-            }
-            if (string.IsNullOrWhiteSpace(item.Form) && !string.IsNullOrWhiteSpace(item.EnName))
-            {
-                Services.PriceLookupService.ParseNameParts(item.EnName, out _, out var enForm, out var enDose);
-                if (!string.IsNullOrWhiteSpace(enForm))
-                    item.Form = enForm;
-                if (string.IsNullOrWhiteSpace(item.Dose) && !string.IsNullOrWhiteSpace(enDose))
-                    item.Dose = enDose;
             }
         }
 

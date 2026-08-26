@@ -178,7 +178,7 @@ public sealed class PriceLookupService
                 if (!string.IsNullOrWhiteSpace(fa))
                 {
                     it.Title = fa;
-                    ParseNameParts(fa, out var brand, out var form, out var dose);
+                    ParseNameParts(fa, d.EnName, out var brand, out var form, out var dose);
                     it.Brand = brand;
                     it.Form = form;
                     it.Dose = dose;
@@ -369,7 +369,7 @@ public sealed class PriceLookupService
                     : (!string.IsNullOrWhiteSpace(parsed.EnName)
                         ? parsed.EnName
                         : (!string.IsNullOrWhiteSpace(irc) ? "فرآورده " + irc : (id > 0 ? "فرآورده " + id : "فرآورده")));
-                ParseNameParts(title, out var brand, out var form, out var dose);
+                ParseNameParts(title, parsed.EnName, out var brand, out var form, out var dose);
 
                 JsonElement full = default;
                 try { full = item.Clone(); } catch { }
@@ -458,7 +458,7 @@ public sealed class PriceLookupService
                 string en = GetString(item, "EnBrandName", "enBrandName", "EnglishName", "englishName");
                 string irc = GetString(item, "Irc", "irc");
                 string title = !string.IsNullOrWhiteSpace(fa) ? fa : (!string.IsNullOrWhiteSpace(en) ? en : "فرآورده " + id);
-                ParseNameParts(title, out var brand, out var form, out var dose);
+                ParseNameParts(title, en, out var brand, out var form, out var dose);
                 list.Add(new ProductSummary
                 {
                     ProductId = id,
@@ -514,8 +514,8 @@ public sealed class PriceLookupService
         "اسپری بینی", "اسپری دهانی", "اسپری تنفسی", "محلول استنشاقی",
         "قرص پراکنده شونده", "قرص آهسته رهش", "پیوسته رهش", "سافت ژل",
         "قرص روکشدار", "قرص جوشان", "قرص جویدنی", "قرص زیرزبانی",
-        "شیاف واژینال", "کرم واژینال", "قرص واژینال", "کپسول نرم",
-        "پرنترال", "Parenteral", "تزریقی", "Injection",
+        "شیاف واژینال", "کرم واژینال", "قرص واژینال", "انما مقعدی", "کپسول نرم",
+        "پرنترال", "Parenteral", "تزریقی", "Injection", "انما", "Enema", "Rectal Enema",
         "لیوفیلیزه", "امولسیون", "الگزیر", "الیکسیر", "Elixir",
         "افشانه", "دهانشویه", "شامپو", "فوم", "خمیر", "روغن", "پچ",
         "کارتریج", "آئروسل", "نبولایزر",
@@ -527,33 +527,84 @@ public sealed class PriceLookupService
         "Infusion", "Sachet", "Suppository", "Inhaler", "Lotion", "Granule"
     };
 
+    private const string DoseUnitPattern =
+        @"mg|mcg|µg|ug|μg|g|kg|ml|µl|μl|ul|l|iu|ui|cc|mmol|meq|%|٪|میلی‌گرم|میلی گرم|میلی‌لیتر|میلی لیتر|واحد";
+
     /// <summary>
-    /// اسم تی‌تک به شکل «برند + شکل دارویی + دوز» است (مثل «دپریلکس کپسول پیوسته رهش خوراکی 37.5 mg»).
-    /// این متد آن را به سه جزء تفکیک می‌کند؛ هر جزء پیدا نشود خالی می‌ماند.
+    /// دوز کامل را برمی‌گرداند؛ ترجیح با اسم انگلیسی است تا چیزهایی مثل «5 mg/ml 2 ml»
+    /// به «5 mg» قیچی نشود.
+    /// </summary>
+    public static string ExtractFullDose(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return "";
+
+        string pattern =
+            @"(?i)(?:\d+(?:[.,]\d+)?(?:\s*/\s*\d+(?:[.,]\d+)?)*\s*(?:" + DoseUnitPattern + @")"
+            + @"(?:\s*/\s*(?:\d+(?:[.,]\d+)?\s*)?(?:" + DoseUnitPattern + @"))?"
+            + @"(?:\s+\d+(?:[.,]\d+)?(?:\s*/\s*\d+(?:[.,]\d+)?)*\s*(?:" + DoseUnitPattern + @"))*)";
+
+        var matches = System.Text.RegularExpressions.Regex.Matches(text, pattern);
+        if (matches.Count == 0)
+            return "";
+
+        string dose = matches[matches.Count - 1].Value;
+        for (int i = matches.Count - 2; i >= 0; i--)
+        {
+            int gapStart = matches[i].Index + matches[i].Length;
+            int gapLen = matches[i + 1].Index - gapStart;
+            if (gapLen < 0)
+                break;
+            string gap = text.Substring(gapStart, gapLen);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(gap, @"^[\s/×xX]*$"))
+                break;
+            dose = matches[i].Value + gap + dose;
+        }
+
+        return NormalizeDose(dose);
+    }
+
+    private static string NormalizeDose(string dose)
+    {
+        dose = System.Text.RegularExpressions.Regex.Replace(dose.Trim(), @"\s+", " ");
+        dose = System.Text.RegularExpressions.Regex.Replace(dose, @"\s*/\s*", "/");
+        dose = System.Text.RegularExpressions.Regex.Replace(
+            dose,
+            @"(?<=\d)(?=" + DoseUnitPattern + @")",
+            " ",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return dose.Trim();
+    }
+
+    /// <summary>
+    /// اسم تی‌تک به شکل «برند + شکل دارویی + دوز» است.
+    /// دوز ترجیحاً از اسم انگلیسی خوانده می‌شود تا کامل بماند.
     /// </summary>
     public static void ParseNameParts(string title, out string brand, out string form, out string dose)
+        => ParseNameParts(title, null, out brand, out form, out dose);
+
+    public static void ParseNameParts(string? title, string? enName, out string brand, out string form, out string dose)
     {
-        brand = title?.Trim() ?? "";
+        title = title?.Trim() ?? "";
+        enName = enName?.Trim() ?? "";
+        brand = title;
         form = "";
         dose = "";
 
-        if (string.IsNullOrWhiteSpace(title))
+        if (!string.IsNullOrWhiteSpace(enName))
+            dose = ExtractFullDose(enName);
+        if (string.IsNullOrWhiteSpace(dose))
+            dose = ExtractFullDose(title);
+
+        string formSource = !string.IsNullOrWhiteSpace(title) ? title : enName;
+        if (string.IsNullOrWhiteSpace(formSource))
             return;
 
-        // دوز: عدد + واحد (آخرین تطبیق در متن)
-        var doseMatch = System.Text.RegularExpressions.Regex.Match(
-            title,
-            @"(\d+(?:[.,/]\d+)?\s*(?:mg|ml|IU|%|٪|میلی‌گرم|میلی گرم|میلی‌لیتر|میلی لیتر|واحد))",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        if (doseMatch.Success)
-            dose = doseMatch.Value.Trim();
-
-        // شکل دارویی: اولین واژه‌ی شکل شناخته‌شده
         int formIdx = -1;
         string foundForm = "";
         foreach (var f in KnownForms)
         {
-            int idx = title.IndexOf(f, StringComparison.OrdinalIgnoreCase);
+            int idx = formSource.IndexOf(f, StringComparison.OrdinalIgnoreCase);
             if (idx >= 0 && (formIdx < 0 || idx < formIdx))
             {
                 formIdx = idx;
@@ -561,28 +612,43 @@ public sealed class PriceLookupService
             }
         }
 
+        if (formIdx < 0 && !string.IsNullOrWhiteSpace(enName) && !string.Equals(formSource, enName, StringComparison.Ordinal))
+        {
+            foreach (var f in KnownForms)
+            {
+                int idx = enName.IndexOf(f, StringComparison.OrdinalIgnoreCase);
+                if (idx >= 0 && (formIdx < 0 || idx < formIdx))
+                {
+                    formIdx = idx;
+                    foundForm = f;
+                    formSource = enName;
+                }
+            }
+        }
+
+        string splitDose = ExtractFullDose(formSource);
+
         if (formIdx < 0)
         {
-            brand = title.Replace(dose, "").Trim();
+            brand = string.IsNullOrWhiteSpace(splitDose)
+                ? formSource
+                : formSource.Replace(splitDose, "", StringComparison.OrdinalIgnoreCase).Trim();
             return;
         }
 
-        brand = title.Substring(0, formIdx).Trim();
-        string rest = title.Substring(formIdx);
-
-        if (!string.IsNullOrWhiteSpace(dose))
+        brand = formSource.Substring(0, formIdx).Trim();
+        string rest = formSource.Substring(formIdx);
+        int doseIdx = -1;
+        if (!string.IsNullOrWhiteSpace(splitDose))
+            doseIdx = rest.IndexOf(splitDose, StringComparison.OrdinalIgnoreCase);
+        if (doseIdx < 0)
         {
-            int doseIdx = rest.IndexOf(dose, StringComparison.OrdinalIgnoreCase);
-            if (doseIdx >= 0)
-                form = rest.Substring(0, doseIdx).Trim();
-            else
-                form = rest.Trim();
-        }
-        else
-        {
-            form = rest.Trim();
+            var num = System.Text.RegularExpressions.Regex.Match(rest, @"\d");
+            if (num.Success)
+                doseIdx = num.Index;
         }
 
+        form = doseIdx >= 0 ? rest.Substring(0, doseIdx).Trim() : rest.Trim();
         if (string.IsNullOrWhiteSpace(form))
             form = foundForm;
     }
@@ -641,7 +707,7 @@ public sealed class PriceLookupService
                 if (!string.IsNullOrWhiteSpace(irc))
                     subtitle = string.IsNullOrWhiteSpace(subtitle) ? "IRC: " + irc : subtitle + " | IRC: " + irc;
 
-                ParseNameParts(title, out var brand, out var form, out var dose);
+                ParseNameParts(title, en, out var brand, out var form, out var dose);
 
                 list.Add(new ProductSummary
                 {
