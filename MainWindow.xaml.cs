@@ -13450,37 +13450,16 @@ private void SaveTtTeckSettings()
     }
 
     // بعد از موفق شدن ورود تی‌تک (وقتی از پنجره‌ی انتخاب داروخانه شروع شده باشد) صدا زده
-    // می‌شود: پنجره‌ی انتخاب داروخانه را با بنر سبز «ورود موفق شد» کوتاه نشان می‌دهد و بعد از
-    // ۲٫۵ ثانیه خودش بسته می‌شود تا پنلِ عملیاتِ ادامه‌یافته دیده شود.
-    private async void ShowTtacLoginSuccessBanner(string? pendingLabel = null)
+    // می‌شود: پنجره‌ی لیست داروخانه‌ها را فوری می‌بندد؛ دیگر ۲٫۵ ثانیه با بنر روی همان لیست
+    // نمی‌ماند.
+    private void ShowTtacLoginSuccessBanner(string? pendingLabel = null)
     {
         try
         {
-            if (TtacQuickLoginSuccessText != null)
-            {
-                // اگر عملیاتی در انتظار بود، نام همان عملیات داخل بنر نشان داده می‌شود
-                // (مثلاً «ورود موفق شد؛ ادامه‌ی تحویل بار شروع شد»).
-                TtacQuickLoginSuccessText.Text = string.IsNullOrWhiteSpace(pendingLabel)
-                    ? _localization.GetString("TtacLoginSuccessBanner")
-                    : _localization.GetFormattedString("TtacLoginSuccessWithPending", pendingLabel);
-            }
             if (TtacQuickLoginSuccessBorder != null)
-                TtacQuickLoginSuccessBorder.Visibility = Visibility.Visible;
-            TtacQuickLoginOverlay.Visibility = Visibility.Visible;
-            MainContent.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 18 };
-
-            await Task.Delay(2500);
-
-            // اگر در این فاصله دوباره پنجره‌ی داروخانه‌ها باز نشده، بنر و پنجره را ببند.
-            if (TtacQuickLoginSuccessBorder != null && TtacQuickLoginSuccessBorder.Visibility == Visibility.Visible)
-            {
                 TtacQuickLoginSuccessBorder.Visibility = Visibility.Collapsed;
-                CloseTtacQuickLoginOverlay();
-
-                // بعد از بسته شدن بنر، فوکوس را به ورودی اصلی پنلی که باز شده بده تا کاربر
-                // بلافاصله بتواند با کیبورد کار کند.
-                _ = Dispatcher.BeginInvoke(new Action(FocusTtacActivePanelAfterLogin), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
-            }
+            CloseTtacQuickLoginOverlay();
+            _ = Dispatcher.BeginInvoke(new Action(FocusTtacActivePanelAfterLogin), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
         catch { }
     }
