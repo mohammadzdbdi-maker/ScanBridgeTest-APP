@@ -12278,6 +12278,7 @@ nQIDAQAB
             PriceLookupStatusText.Visibility = Visibility.Visible;
             PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
             PriceLookupResultsList.Visibility = Visibility.Collapsed;
+            HidePriceLookupFilterPanel();
             PriceLookupStatusText.Text = "🔍 در حال جست‌وجوی کد ژنریک در تی‌تک...";
             var products = await PriceLookup.SearchByGenericCodeAsync(query, PriceLookupToken);
             products = await PriceLookup.EnrichSummariesWithDetailsAsync(products, PriceLookupToken);
@@ -12288,8 +12289,8 @@ nQIDAQAB
         await RunPriceLookupAsync(query, isFromScan: false);
     }
 
-    /// <summary>نمایش لیست مرتب‌شده‌ی فرآورده‌ها برای انتخاب — ترتیب: اسم (که شکل و دوز را هم دارد) و IRC</summary>
-    private async Task ShowProductSelectionListAsync(List<Services.PriceLookupService.ProductSummary> products)
+    /// <summary>نمایش لیست مرتب‌شده‌ی فرآورده‌ها برای انتخاب. فیلتر شکل/دوز فقط برای جست‌وجوی نام.</summary>
+    private async Task ShowProductSelectionListAsync(List<Services.PriceLookupService.ProductSummary> products, bool showFormDoseFilter = false)
     {
         if (products.Count == 0)
         {
@@ -12355,7 +12356,10 @@ nQIDAQAB
         BroadcastPriceLookupList(ordered, PriceLookupStatusText.Text);
         PriceLookupResultsList.Visibility = Visibility.Visible;
         PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
-        PopulatePriceLookupFilters(ordered);
+        if (showFormDoseFilter)
+            PopulatePriceLookupFilters(ordered);
+        else
+            HidePriceLookupFilterPanel();
         RenderPriceLookupResultRows(ordered);
         return;
     }
@@ -12629,7 +12633,7 @@ nQIDAQAB
                 PriceLookupStatusText.Text = "🔍 در حال جست‌وجوی فرآورده در تی‌تک... (تا دو صفحه نتیجه)";
                 var products = await PriceLookup.SearchProductsAsync(query, PriceLookupToken);
                 products = await PriceLookup.EnrichSummariesWithDetailsAsync(products, PriceLookupToken);
-                await ShowProductSelectionListAsync(products);
+                await ShowProductSelectionListAsync(products, showFormDoseFilter: true);
             }
         }
         catch (Exception ex)

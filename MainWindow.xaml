@@ -1215,6 +1215,8 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
@@ -1298,68 +1300,87 @@
                         </Grid>
                     </StackPanel>
 
-                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="PriceLookupStatusText"
+                               Grid.Row="2"
+                               Text=""
+                               FontSize="13"
+                               Foreground="#6B7280"
+                               TextWrapping="Wrap"
+                               Visibility="Collapsed"
+                               Margin="0,0,0,8" />
+
+                    <Border x:Name="PriceLookupFilterPanel"
+                            Grid.Row="3"
+                            Background="#FFFBEB"
+                            BorderBrush="#F59E0B"
+                            BorderThickness="1.5"
+                            CornerRadius="16"
+                            Padding="14,12"
+                            Margin="0,0,0,10"
+                            Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                                <TextBlock Text="فیلتر"
+                                           FontSize="15"
+                                           FontWeight="Bold"
+                                           Foreground="#92400E" />
+                                <TextBlock Text="شکل و دوز"
+                                           FontSize="11"
+                                           Foreground="#B45309"
+                                           Margin="0,2,0,0" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="شکل دارویی"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="#78350F"
+                                           Margin="2,0,0,4" />
+                                <ComboBox x:Name="PriceLookupFormFilterCombo"
+                                          Height="36"
+                                          FontSize="13"
+                                          Padding="8,4"
+                                          ToolTip="فیلتر شکل دارویی"
+                                          SelectionChanged="PriceLookupFilter_SelectionChanged" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="3">
+                                <TextBlock Text="دوز"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="#78350F"
+                                           Margin="2,0,0,4" />
+                                <ComboBox x:Name="PriceLookupDoseFilterCombo"
+                                          Height="36"
+                                          FontSize="13"
+                                          Padding="8,4"
+                                          ToolTip="فیلتر دوز"
+                                          SelectionChanged="PriceLookupFilter_SelectionChanged" />
+                            </StackPanel>
+                            <Button x:Name="PriceLookupFilterClearButton"
+                                    Grid.Column="4"
+                                    Content="پاک کردن"
+                                    Click="PriceLookupFilterClearButton_Click"
+                                    Style="{StaticResource RoundedButtonStyle}"
+                                    Background="#FED7AA"
+                                    Foreground="#9A3412"
+                                    Height="36"
+                                    Padding="14,0"
+                                    Margin="12,0,0,0"
+                                    FontSize="12"
+                                    FontWeight="Bold"
+                                    VerticalAlignment="Bottom"
+                                    ToolTip="پاک کردن فیلتر شکل و دوز" />
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
                         <StackPanel>
-                            <!-- وضعیت: در حال جست‌وجو / خطا -->
-                            <TextBlock x:Name="PriceLookupStatusText"
-                                       Text=""
-                                       FontSize="13"
-                                       Foreground="#6B7280"
-                                       TextWrapping="Wrap"
-                                       Visibility="Collapsed"
-                                       Margin="0,0,0,10" />
-
-                            <Border x:Name="PriceLookupFilterPanel"
-                                    Background="#FFF7ED"
-                                    BorderBrush="#FDBA74"
-                                    BorderThickness="1"
-                                    CornerRadius="12"
-                                    Padding="10,8"
-                                    Margin="0,0,0,10"
-                                    Visibility="Collapsed">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="8" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0"
-                                               Text="فیلتر"
-                                               FontSize="13"
-                                               FontWeight="Bold"
-                                               Foreground="#9A3412"
-                                               VerticalAlignment="Center"
-                                               Margin="0,0,10,0" />
-                                    <ComboBox x:Name="PriceLookupFormFilterCombo"
-                                              Grid.Column="1"
-                                              Height="34"
-                                              FontSize="12"
-                                              ToolTip="فیلتر شکل دارویی"
-                                              SelectionChanged="PriceLookupFilter_SelectionChanged" />
-                                    <ComboBox x:Name="PriceLookupDoseFilterCombo"
-                                              Grid.Column="3"
-                                              Height="34"
-                                              FontSize="12"
-                                              ToolTip="فیلتر دوز"
-                                              SelectionChanged="PriceLookupFilter_SelectionChanged" />
-                                    <Button x:Name="PriceLookupFilterClearButton"
-                                            Grid.Column="4"
-                                            Content="پاک"
-                                            Click="PriceLookupFilterClearButton_Click"
-                                            Style="{StaticResource RoundedButtonStyle}"
-                                            Background="#F3F4F6"
-                                            Foreground="#9A3412"
-                                            Height="34"
-                                            Padding="12,0"
-                                            Margin="8,0,0,0"
-                                            FontSize="12"
-                                            FontWeight="Bold"
-                                            ToolTip="پاک کردن فیلتر شکل و دوز" />
-                                </Grid>
-                            </Border>
-
                             <!-- لیست انتخاب فرآورده (جست‌وجوی نامی) -->
                             <StackPanel x:Name="PriceLookupResultsList" Visibility="Collapsed" />
 
