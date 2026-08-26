@@ -167,6 +167,9 @@ nQIDAQAB
     private bool _ttacQuickLoginInProgress;
     // جلوی اعمال دوباره‌ی توکن/بستن پنجره وقتی هم اسکریپت، هم ناوبری و هم مانیتور توکن را می‌بینند.
     private bool _ttacLoginSuccessHandled;
+    // وقتی کاربر داروخانه‌ی دیگری را می‌زند، توکن قبلی را تا دیدن صفحه‌ی ورود idp نادیده می‌گیریم.
+    private bool _ttacWaitingForFreshLogin;
+    private bool _ttacSawIdpLoginPage;
     private readonly List<string> _queuedReceiveStatusBarcodes = new();
     private readonly HashSet<string> _receiveStatusKnownBarcodes = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _cargoDeliveryKnownBarcodes = new(StringComparer.OrdinalIgnoreCase);
@@ -2347,6 +2350,8 @@ nQIDAQAB
             tr.Cells.Add(CreatePdfCell(row.Irc, false));
             tr.Cells.Add(CreatePdfCell(row.LotNumber, false));
             tr.Cells.Add(CreatePdfCell(row.Quantity, false));
+            tr.Cells.Add(CreatePdfCell(row.SenderName, false));
+            tr.Cells.ACreatePdfCell(row.Quantity, false));
             tr.Cells.Add(CreatePdfCell(row.SenderName, false));
             tr.Cells.Add(CreatePdfCell(row.StatusText, false));
         }
@@ -6520,10 +6525,22 @@ nQIDAQAB
 
             CloseTtacQuickLoginOverlay();
 
-            // مرورگر داخلی را با همین حساب (اجباری) باز کن.
             _pendingTtacAutofillUsername = username;
             _ttacRetryUsername = username;
             _ttacQuickLoginInProgress = true;
+
+            // اگر همین داروخانه از قبل وارد است، دوباره مرورگر را باز نکن.
+            if (HasValidTtacToken() && TokenMatchesRequestedPharmacy(_ttacAccessTokenOverride, username))
+            {
+                _ttacQuickLoginInProgress = false;
+                ShowTtacLoginSuccessBanner();
+                return;
+            }
+
+            // توکن/کوکی داروخانه‌ی قبلی را پاک کن تا همان نشست فوری بسته نشود.
+            if (HasValidTtacToken() || _ttTeckWebView?.CoreWebView2 != null)
+                await ClearTtacWebViewSessionForSwitchAsync();
+
             await OpenTtTeckInternalBrowserAsync("https://newstatisticsreports.ttac.ir/pharmacyDashboard");
             _ = MonitorTtacConnectionAfterBrowserOpenAsync();
         }
@@ -6998,6 +7015,108 @@ nQIDAQAB
         catch { }
 
         return null;
+    }
+
+    private static string? ReadJwtClaim(string? jwt, params string[] names)
+    {
+        if (string.IsNullOrWhiteSpace(jwt) || names == null || names.Length == 0)
+            return null;
+        try
+        {
+            string[] parts = jwt.Split('.');
+            if (parts.Length < 2)
+                return null;
+            string payload = parts[1].Replace('-', '+').Replace('_', '/');
+            payload = payload.PadRight(payload.Length + ((4 - payload.Length % 4) % 4), '=');
+            string json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+            using var doc = JsonDocument.Parse(json);
+            foreach (string name in names)
+            {
+                if (doc.RootElement.TryGetProperty(name, out var el))
+                {
+                    string? value = el.ValueKind == JsonValueKind.String ? el.GetString() : el.ToString();
+                    if (!string.IsNullOrWhiteSpace(value))
+                        return value.Trim();
+                }
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private bool TokenMatchesRequestedPharmacy(string? token, string? username)
+    {
+        if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(username))
+            return false;
+
+        string requested = username.Trim();
+        string? claimUser = ReadJwtClaim(token, "preferred_username", "unique_name", "username", "userName", "nameid", "sub", "name", "pharmacyCode", "gln");
+        if (!string.IsNullOrWhiteSpace(claimUser) && string.Equals(claimUser, requested, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        try
+        {
+            var saved = LoadSavedTtacLogins()
+                .FirstOrDefault(x => string.Equals(x.Username, requested, StringComparison.OrdinalIgnoreCase));
+            string? display = TryExtractTtacDisplayNameFromToken(token);
+            if (saved != null && !string.IsNullOrWhiteSpace(saved.PharmacyName) && !string.IsNullOrWhiteSpace(display))
+            {
+                if (display.Contains(saved.PharmacyName, StringComparison.OrdinalIgnoreCase)
+                    || saved.PharmacyName.Contains(display, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        catch { }
+
+        return false;
+    }
+
+    private bool ShouldIgnoreStaleTtacToken()
+        => _ttacWaitingForFreshLogin && !_ttacSawIdpLoginPage;
+
+    private void MarkTtacIdpLoginSeen(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || string.IsNullOrWhiteSpace(uri.Host))
+            return;
+        if (uri.Host.EndsWith("idp.ttac.ir", StringComparison.OrdinalIgnoreCase))
+            _ttacSawIdpLoginPage = true;
+    }
+
+    private async Task ClearTtacWebViewSessionForSwitchAsync()
+    {
+        try
+        {
+            if (HasValidTtacToken())
+            {
+                SaveCurrentReceiveStatusItemsForCurrentPharmacy();
+                SaveCurrentCargoDeliveryItemsForCurrentPharmacy();
+                SaveCurrentHistoryForCurrentPharmacy();
+                SaveTtacRegistrationHistory();
+            }
+        }
+        catch { }
+
+        _ttacAccessTokenOverride = null;
+        _ttacAccessTokenExpiresAtUtc = DateTime.MinValue;
+        UpdateTtacTokenValidityTracking(false, suppressExpiryNotification: true);
+        _ttacLoginSuccessHandled = false;
+        _ttacSawIdpLoginPage = false;
+        _ttacWaitingForFreshLogin = true;
+        UpdateTtacConnectionStatusUI();
+
+        try
+        {
+            if (_ttTeckWebView?.CoreWebView2 != null)
+            {
+                try { await _ttTeckWebView.CoreWebView2.ExecuteScriptAsync("try{localStorage.clear();sessionStorage.clear();}catch(e){}"); } catch { }
+                try { _ttTeckWebView.CoreWebView2.CookieManager.DeleteAllCookies(); } catch { }
+                try { _ttTeckWebView.CoreWebView2.Navigate("about:blank"); } catch { }
+                await Task.Delay(400);
+            }
+        }
+        catch { }
     }
 
     private sealed class TtacTokenResult
@@ -8436,11 +8555,14 @@ nQIDAQAB
         bool sessionExpired = false;
         try
         {
-            string? webViewToken = await TryReadTtacTokenFromWebViewStorageAsync();
-            if (!string.IsNullOrWhiteSpace(webViewToken))
+            if (!ShouldIgnoreStaleTtacToken())
             {
-                ApplyTtacAccessToken(webViewToken, DateTime.UtcNow.AddMinutes(90));
-                return _ttacAccessTokenOverride;
+                string? webViewToken = await TryReadTtacTokenFromWebViewStorageAsync();
+                if (!string.IsNullOrWhiteSpace(webViewToken))
+                {
+                    ApplyTtacAccessToken(webViewToken, DateTime.UtcNow.AddMinutes(90));
+                    return _ttacAccessTokenOverride;
+                }
             }
         }
         catch { }
@@ -8494,12 +8616,15 @@ nQIDAQAB
                 "})();",
             });
 
-            string resultJson = await TtTeckWebView.CoreWebView2.ExecuteScriptAsync(script);
-            string? token = JsonSerializer.Deserialize<string?>(resultJson);
-            if (!string.IsNullOrWhiteSpace(token))
+            if (!ShouldIgnoreStaleTtacToken())
             {
-                ApplyTtacAccessToken(token, DateTime.UtcNow.AddMinutes(90));
-                return _ttacAccessTokenOverride;
+                string resultJson = await TtTeckWebView.CoreWebView2.ExecuteScriptAsync(script);
+                string? token = JsonSerializer.Deserialize<string?>(resultJson);
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    ApplyTtacAccessToken(token, DateTime.UtcNow.AddMinutes(90));
+                    return _ttacAccessTokenOverride;
+                }
             }
         }
         catch { }
@@ -13835,12 +13960,18 @@ private void SaveTtTeckSettings()
         if (string.IsNullOrWhiteSpace(token))
             return;
 
+        // توکن داروخانه‌ی قبلی را تا دیدن صفحه‌ی ورود idp قبول نکن.
+        if (ShouldIgnoreStaleTtacToken())
+            return;
+
         if (_ttacLoginSuccessHandled
             && HasValidTtacToken()
             && TtTeckWebViewOverlay.Visibility != Visibility.Visible)
             return;
 
         _ttacLoginSuccessHandled = true;
+        _ttacWaitingForFreshLogin = false;
+        _ttacSawIdpLoginPage = false;
 
         bool wasQuickLogin = _ttacQuickLoginInProgress;
         _ttacQuickLoginInProgress = false;
@@ -13912,12 +14043,20 @@ private void SaveTtTeckSettings()
         TtTeckWebView.CoreWebView2.NavigationStarting += (_, e) =>
         {
             string uri = e.Uri;
-            Dispatcher.BeginInvoke(new Action(() => TryFinishTtacInternalBrowserLoginFromUrl(uri)));
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                MarkTtacIdpLoginSeen(uri);
+                TryFinishTtacInternalBrowserLoginFromUrl(uri);
+            }));
         };
         TtTeckWebView.CoreWebView2.SourceChanged += (_, _) =>
         {
             Dispatcher.BeginInvoke(new Action(() =>
-                TryFinishTtacInternalBrowserLoginFromUrl(TtTeckWebView.Source?.ToString())));
+            {
+                string? href = TtTeckWebView.Source?.ToString();
+                MarkTtacIdpLoginSeen(href);
+                TryFinishTtacInternalBrowserLoginFromUrl(href);
+            }));
         };
 
         TtTeckWebView.CoreWebView2.NavigationCompleted += (_, args) =>
