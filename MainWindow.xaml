@@ -435,14 +435,16 @@
                                                         ToolTip="باز کردن سایت تی‌تک" />
                                                 <Button x:Name="TtacDisconnectButton"
                                                         Grid.Column="3"
-                                                        Content="⏻"
+                                                        Content="✕"
                                                         Click="TtacDisconnectButton_Click"
                                                         Style="{StaticResource RoundedButtonStyle}"
                                                         Background="#E53935"
+                                                        Foreground="White"
                                                         Width="34"
                                                         Height="34"
                                                         Padding="0"
-                                                        FontSize="15"
+                                                        FontSize="16"
+                                                        FontWeight="Bold"
                                                         Margin="8,0,0,0"
                                                         ToolTip="قطع اتصال تی‌تک"
                                                         Visibility="Collapsed" />
@@ -578,7 +580,7 @@
                                 Margin="0,8"
                                 Background="#F59E0B"
                                 FontSize="18"
-                                Content="💰 استعلام قیمت" />
+                                Content="استعلام قیمت" />
 
                         <!-- باکس پیشرفت دانلود بروزرسانی - قبلاً یک پنجره‌ی جدا (DownloadProgressWindow) بود
                              که موقعیتش با محاسبه‌ی دستی Left/Top هیچ‌وقت درست از آب در نمی‌آمد (کاربر چند بار
@@ -1306,6 +1308,57 @@
                                        TextWrapping="Wrap"
                                        Visibility="Collapsed"
                                        Margin="0,0,0,10" />
+
+                            <Border x:Name="PriceLookupFilterPanel"
+                                    Background="#FFF7ED"
+                                    BorderBrush="#FDBA74"
+                                    BorderThickness="1"
+                                    CornerRadius="12"
+                                    Padding="10,8"
+                                    Margin="0,0,0,10"
+                                    Visibility="Collapsed">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="8" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               Text="فیلتر"
+                                               FontSize="13"
+                                               FontWeight="Bold"
+                                               Foreground="#9A3412"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,10,0" />
+                                    <ComboBox x:Name="PriceLookupFormFilterCombo"
+                                              Grid.Column="1"
+                                              Height="34"
+                                              FontSize="12"
+                                              ToolTip="فیلتر شکل دارویی"
+                                              SelectionChanged="PriceLookupFilter_SelectionChanged" />
+                                    <ComboBox x:Name="PriceLookupDoseFilterCombo"
+                                              Grid.Column="3"
+                                              Height="34"
+                                              FontSize="12"
+                                              ToolTip="فیلتر دوز"
+                                              SelectionChanged="PriceLookupFilter_SelectionChanged" />
+                                    <Button x:Name="PriceLookupFilterClearButton"
+                                            Grid.Column="4"
+                                            Content="پاک"
+                                            Click="PriceLookupFilterClearButton_Click"
+                                            Style="{StaticResource RoundedButtonStyle}"
+                                            Background="#F3F4F6"
+                                            Foreground="#9A3412"
+                                            Height="34"
+                                            Padding="12,0"
+                                            Margin="8,0,0,0"
+                                            FontSize="12"
+                                            FontWeight="Bold"
+                                            ToolTip="پاک کردن فیلتر شکل و دوز" />
+                                </Grid>
+                            </Border>
 
                             <!-- لیست انتخاب فرآورده (جست‌وجوی نامی) -->
                             <StackPanel x:Name="PriceLookupResultsList" Visibility="Collapsed" />
@@ -4319,10 +4372,20 @@
                                                     BorderThickness="0"
                                                     Cursor="Hand"
                                                     ToolTip="نمایش رمز عبور">
-                                                <TextBlock x:Name="TtacSavedLoginPasswordToggleIcon"
-                                                           Text="👁"
-                                                           FontSize="14"
-                                                           VerticalAlignment="Center" />
+                                                <Grid Width="18" Height="18">
+                                                    <TextBlock x:Name="TtacSavedLoginPasswordToggleIcon"
+                                                               Text="👁"
+                                                               FontSize="14"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Center" />
+                                                    <Path x:Name="TtacSavedLoginPasswordSlash"
+                                                          Data="M 1,17 L 17,1"
+                                                          Stroke="#374151"
+                                                          StrokeThickness="1.8"
+                                                          StrokeStartLineCap="Round"
+                                                          StrokeEndLineCap="Round"
+                                                          Visibility="Visible" />
+                                                </Grid>
                                             </Button>
                                         </Grid>
                                     </StackPanel>

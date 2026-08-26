@@ -6184,6 +6184,17 @@ nQIDAQAB
 
     private bool _isPasswordVisible = false;
 
+    // چشم = رمز دیده می‌شود؛ چشم با خط = رمز مخفی است.
+    private void UpdateTtacSavedLoginPasswordToggleIcon(bool passwordVisible)
+    {
+        if (TtacSavedLoginPasswordSlash != null)
+            TtacSavedLoginPasswordSlash.Visibility = passwordVisible ? Visibility.Collapsed : Visibility.Visible;
+        if (TtacSavedLoginPasswordToggleIcon != null)
+            TtacSavedLoginPasswordToggleIcon.Text = "👁";
+        if (TtacSavedLoginPasswordToggle != null)
+            TtacSavedLoginPasswordToggle.ToolTip = passwordVisible ? "مخفی کردن رمز عبور" : "نمایش رمز عبور";
+    }
+
     private void TtacSavedLoginPasswordToggle_Click(object sender, RoutedEventArgs e)
     {
         _isPasswordVisible = !_isPasswordVisible;
@@ -6192,8 +6203,7 @@ nQIDAQAB
             TtacSavedLoginPasswordTextBox.Text = TtacSavedLoginPasswordBox.Password;
             TtacSavedLoginPasswordTextBox.Visibility = Visibility.Visible;
             TtacSavedLoginPasswordBox.Visibility = Visibility.Collapsed;
-            TtacSavedLoginPasswordToggleIcon.Text = "🙈";
-            TtacSavedLoginPasswordToggle.ToolTip = "مخفی کردن رمز عبور";
+            UpdateTtacSavedLoginPasswordToggleIcon(true);
             TtacSavedLoginPasswordTextBox.Focus();
             TtacSavedLoginPasswordTextBox.CaretIndex = TtacSavedLoginPasswordTextBox.Text.Length;
         }
@@ -6202,8 +6212,7 @@ nQIDAQAB
             TtacSavedLoginPasswordBox.Password = TtacSavedLoginPasswordTextBox.Text;
             TtacSavedLoginPasswordBox.Visibility = Visibility.Visible;
             TtacSavedLoginPasswordTextBox.Visibility = Visibility.Collapsed;
-            TtacSavedLoginPasswordToggleIcon.Text = "👁";
-            TtacSavedLoginPasswordToggle.ToolTip = "نمایش رمز عبور";
+            UpdateTtacSavedLoginPasswordToggleIcon(false);
             TtacSavedLoginPasswordBox.Focus();
         }
     }
@@ -6212,7 +6221,9 @@ nQIDAQAB
     {
         bool english = _localization.CurrentLanguage == AppLanguage.English;
         string username = TtacSavedLoginUsernameTextBox.Text?.Trim() ?? string.Empty;
-        string password = TtacSavedLoginPasswordBox.Password ?? string.Empty;
+        string password = _isPasswordVisible
+            ? (TtacSavedLoginPasswordTextBox.Text ?? string.Empty)
+            : (TtacSavedLoginPasswordBox.Password ?? string.Empty);
         string pharmacyName = TtacSavedLoginPharmacyNameTextBox.Text?.Trim() ?? string.Empty;
 
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
@@ -6227,11 +6238,12 @@ nQIDAQAB
 
         TtacSavedLoginUsernameTextBox.Text = string.Empty;
         TtacSavedLoginPasswordBox.Password = string.Empty;
+        TtacSavedLoginPasswordTextBox.Text = string.Empty;
         TtacSavedLoginPharmacyNameTextBox.Text = string.Empty;
         _isPasswordVisible = false;
         TtacSavedLoginPasswordBox.Visibility = Visibility.Visible;
         TtacSavedLoginPasswordTextBox.Visibility = Visibility.Collapsed;
-        TtacSavedLoginPasswordToggleIcon.Text = "👁";
+        UpdateTtacSavedLoginPasswordToggleIcon(false);
 
         TtacSavedLoginStatusText.Text = _localization.GetString("SavedAQuickLoginButtonWasAddedToTheMainScreen");
         TtacSavedLoginStatusText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x05, 0x96, 0x69));
@@ -6251,11 +6263,12 @@ nQIDAQAB
         TtacSavedLoginUsernameTextBox.Text = login.Username;
         TtacSavedLoginPharmacyNameTextBox.Text = login.PharmacyName;
         TtacSavedLoginPasswordBox.Password = string.Empty;
+        TtacSavedLoginPasswordTextBox.Text = string.Empty;
         // رمز عبور را به حالت مخفی برگردان
         _isPasswordVisible = false;
         TtacSavedLoginPasswordBox.Visibility = Visibility.Visible;
         TtacSavedLoginPasswordTextBox.Visibility = Visibility.Collapsed;
-        TtacSavedLoginPasswordToggleIcon.Text = "👁";
+        UpdateTtacSavedLoginPasswordToggleIcon(false);
         TtacSavedLoginPasswordBox.Focus();
 
         TtacSavedLoginStatusText.Text = _localization.GetFormattedString("EditingLogin", login.DisplayLabel);
@@ -11844,6 +11857,8 @@ nQIDAQAB
     // ================= پنجره نتیجه قیمت =================
 
     private Services.PriceLookupService.PriceResult? _lastPriceResult;
+    private List<Services.PriceLookupService.ProductSummary> _priceLookupCurrentList = new();
+    private bool _priceLookupFilterUpdating;
 
     private void ShowPriceResultWindow(Services.PriceLookupService.PriceResult result)
     {
@@ -12027,6 +12042,7 @@ nQIDAQAB
         PriceLookupStatusText.Visibility = Visibility.Collapsed;
         PriceLookupResultsList.Visibility = Visibility.Collapsed;
         PriceLookupResultsList.Children.Clear();
+        HidePriceLookupFilterPanel();
         PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
         PriceLookupNotDrugWarning.Visibility = Visibility.Collapsed;
         PriceLookupOverlay.Visibility = Visibility.Visible;
@@ -12048,6 +12064,7 @@ nQIDAQAB
 
         PriceSearchInputsPanel.Visibility = Visibility.Visible;
         PriceLookupResultsList.Visibility = Visibility.Collapsed;
+        HidePriceLookupFilterPanel();
         PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
 
         string mode = _priceActiveField;
@@ -12276,6 +12293,7 @@ nQIDAQAB
     {
         if (products.Count == 0)
         {
+            HidePriceLookupFilterPanel();
             PriceLookupStatusText.Visibility = Visibility.Visible;
             PriceLookupStatusText.Text = "❌ فرآورده‌ای پیدا نشد. عبارت را بررسی کنید.";
             BroadcastPriceLookupList(products, "❌ فرآورده‌ای پیدا نشد. عبارت را بررسی کنید.");
@@ -12312,6 +12330,14 @@ nQIDAQAB
                     item.Dose = dose;
                 }
             }
+            if (string.IsNullOrWhiteSpace(item.Form) && !string.IsNullOrWhiteSpace(item.EnName))
+            {
+                Services.PriceLookupService.ParseNameParts(item.EnName, out _, out var enForm, out var enDose);
+                if (!string.IsNullOrWhiteSpace(enForm))
+                    item.Form = enForm;
+                if (string.IsNullOrWhiteSpace(item.Dose) && !string.IsNullOrWhiteSpace(enDose))
+                    item.Dose = enDose;
+            }
         }
 
         // مرتب‌سازی طبق درخواست: شکل دارویی → اسم دارو → دوز → IRC
@@ -12323,15 +12349,128 @@ nQIDAQAB
             .ThenBy(p => p.Subtitle, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        _priceLookupCurrentList = ordered;
         PriceLookupStatusText.Text = ordered.Count + " فرآورده پیدا شد — یکی را انتخاب کنید:";
         PriceLookupStatusText.Visibility = Visibility.Visible;
         BroadcastPriceLookupList(ordered, PriceLookupStatusText.Text);
         PriceLookupResultsList.Visibility = Visibility.Visible;
         PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
-        PriceLookupResultsList.Children.Clear();
+        PopulatePriceLookupFilters(ordered);
+        RenderPriceLookupResultRows(ordered);
+        return;
+    }
 
-        // ساخت ستون‌های جدول برای هر ردیف: شکل دارویی | اسم دارو | دوز | IRC — هرکدام باکس جدا
-        foreach (var p in ordered)
+    private void HidePriceLookupFilterPanel()
+    {
+        _priceLookupCurrentList = new List<Services.PriceLookupService.ProductSummary>();
+        if (PriceLookupFilterPanel != null)
+            PriceLookupFilterPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void PopulatePriceLookupFilters(List<Services.PriceLookupService.ProductSummary> items)
+    {
+        if (PriceLookupFilterPanel == null || PriceLookupFormFilterCombo == null || PriceLookupDoseFilterCombo == null)
+            return;
+
+        var forms = items
+            .Select(p => (p.Form ?? string.Empty).Trim())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var doses = items
+            .Select(p => (p.Dose ?? string.Empty).Trim())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(Services.PriceLookupService.DoseValue)
+            .ThenBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _priceLookupFilterUpdating = true;
+        try
+        {
+            PriceLookupFormFilterCombo.Items.Clear();
+            PriceLookupFormFilterCombo.Items.Add("همه شکل‌ها");
+            foreach (var f in forms)
+                PriceLookupFormFilterCombo.Items.Add(f);
+            PriceLookupFormFilterCombo.SelectedIndex = 0;
+
+            PriceLookupDoseFilterCombo.Items.Clear();
+            PriceLookupDoseFilterCombo.Items.Add("همه دوزها");
+            foreach (var d in doses)
+                PriceLookupDoseFilterCombo.Items.Add(d);
+            PriceLookupDoseFilterCombo.SelectedIndex = 0;
+        }
+        finally
+        {
+            _priceLookupFilterUpdating = false;
+        }
+
+        PriceLookupFilterPanel.Visibility = (forms.Count > 0 || doses.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void PriceLookupFilter_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_priceLookupFilterUpdating)
+            return;
+        ApplyPriceLookupFilters();
+    }
+
+    private void PriceLookupFilterClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (PriceLookupFormFilterCombo == null || PriceLookupDoseFilterCombo == null)
+            return;
+        _priceLookupFilterUpdating = true;
+        try
+        {
+            if (PriceLookupFormFilterCombo.Items.Count > 0)
+                PriceLookupFormFilterCombo.SelectedIndex = 0;
+            if (PriceLookupDoseFilterCombo.Items.Count > 0)
+                PriceLookupDoseFilterCombo.SelectedIndex = 0;
+        }
+        finally
+        {
+            _priceLookupFilterUpdating = false;
+        }
+        ApplyPriceLookupFilters();
+    }
+
+    private void ApplyPriceLookupFilters()
+    {
+        if (_priceLookupCurrentList.Count == 0)
+            return;
+
+        string formFilter = PriceLookupFormFilterCombo?.SelectedIndex > 0
+            ? (PriceLookupFormFilterCombo.SelectedItem?.ToString() ?? string.Empty)
+            : string.Empty;
+        string doseFilter = PriceLookupDoseFilterCombo?.SelectedIndex > 0
+            ? (PriceLookupDoseFilterCombo.SelectedItem?.ToString() ?? string.Empty)
+            : string.Empty;
+
+        var filtered = _priceLookupCurrentList.Where(p =>
+        {
+            if (!string.IsNullOrWhiteSpace(formFilter)
+                && !string.Equals((p.Form ?? string.Empty).Trim(), formFilter, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (!string.IsNullOrWhiteSpace(doseFilter)
+                && !string.Equals((p.Dose ?? string.Empty).Trim(), doseFilter, StringComparison.OrdinalIgnoreCase))
+                return false;
+            return true;
+        }).ToList();
+
+        PriceLookupStatusText.Text = filtered.Count == _priceLookupCurrentList.Count
+            ? _priceLookupCurrentList.Count + " فرآورده پیدا شد — یکی را انتخاب کنید:"
+            : filtered.Count + " از " + _priceLookupCurrentList.Count + " فرآورده (فیلتر شده):";
+        PriceLookupStatusText.Visibility = Visibility.Visible;
+        RenderPriceLookupResultRows(filtered);
+    }
+
+    private void RenderPriceLookupResultRows(List<Services.PriceLookupService.ProductSummary> rows)
+    {
+        PriceLookupResultsList.Children.Clear();
+        PriceLookupResultsList.Visibility = Visibility.Visible;
+
+        foreach (var p in rows)
         {
             string brandCell = string.IsNullOrWhiteSpace(p.Brand) ? p.Title : p.Brand;
             string formCell = string.IsNullOrWhiteSpace(p.Form) ? "—" : p.Form;
@@ -12449,6 +12588,7 @@ nQIDAQAB
         PriceLookupStatusText.Visibility = Visibility.Collapsed;
         PriceLookupResultsList.Visibility = Visibility.Collapsed;
         PriceLookupResultsList.Children.Clear();
+        HidePriceLookupFilterPanel();
         PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
         PriceLookupNotDrugWarning.Visibility = Visibility.Collapsed;
         PriceSearchInputsPanel.Visibility = Visibility.Visible;
@@ -12474,6 +12614,7 @@ nQIDAQAB
         PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
         PriceLookupResultsList.Visibility = Visibility.Collapsed;
         PriceLookupResultsList.Children.Clear();
+        HidePriceLookupFilterPanel();
 
         try
         {
@@ -13155,13 +13296,14 @@ private void SaveTtTeckSettings()
         // پاک کردن فرم ذخیره حساب تی‌تک
         TtacSavedLoginUsernameTextBox.Text = string.Empty;
         TtacSavedLoginPasswordBox.Password = string.Empty;
+        TtacSavedLoginPasswordTextBox.Text = string.Empty;
         TtacSavedLoginPharmacyNameTextBox.Text = string.Empty;
         TtacSavedLoginStatusText.Visibility = Visibility.Collapsed;
         // ریست حالت نمایش رمز
         _isPasswordVisible = false;
         TtacSavedLoginPasswordBox.Visibility = Visibility.Visible;
         TtacSavedLoginPasswordTextBox.Visibility = Visibility.Collapsed;
-        TtacSavedLoginPasswordToggleIcon.Text = "👁";
+        UpdateTtacSavedLoginPasswordToggleIcon(false);
     }
 
     private void TtTeckSettingsOverlay_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
