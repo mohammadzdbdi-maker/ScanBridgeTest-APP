@@ -12475,8 +12475,8 @@ nQIDAQAB
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
 
             AddPriceCell(grid, 0, formCell, "#EFF6FF", "#1E3A8A", 11.5, wrap: true);
             AddPriceCell(grid, 1, brandCell, "#FFFFFF", "#0F172A", 12.5, bold: true, wrap: true);
