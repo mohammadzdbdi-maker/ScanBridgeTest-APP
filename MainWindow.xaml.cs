@@ -11180,7 +11180,30 @@ nQIDAQAB
     }
 
     private static string GetCurrentAppVersionString()
-        => System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
+    {
+        try
+        {
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            string? info = asm.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (!string.IsNullOrWhiteSpace(info))
+            {
+                int plus = info.IndexOf('+');
+                if (plus >= 0)
+                    info = info[..plus];
+                return info.Trim();
+            }
+
+            string? product = System.Diagnostics.FileVersionInfo.GetVersionInfo(asm.Location).ProductVersion;
+            if (!string.IsNullOrWhiteSpace(product))
+                return product.Split('+')[0].Trim();
+
+            return asm.GetName().Version?.ToString() ?? "1.0.0";
+        }
+        catch
+        {
+            return "1.0.0";
+        }
+    }
 
     // بررسی بروزرسانی: یک فایل JSON ساده روی سایت با فرمت {"version": "...", "message": "...",
     // "url": "..."} می‌خواند (دقیقاً همان فرمتی که اپ اندروید هم برای همین کار استفاده می‌کند - هیچ
