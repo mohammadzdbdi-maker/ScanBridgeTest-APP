@@ -11605,7 +11605,11 @@ nQIDAQAB
                 return;
             }
             TryUnblockDownloadedFile(installerPath);
-            Process.Start(new ProcessStartInfo(installerPath) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(installerPath)
+            {
+                UseShellExecute = true,
+                Verb = "runas"
+            });
         }
         catch (Exception ex)
         {
