@@ -11598,41 +11598,60 @@ nQIDAQAB
     //                        کاربر خودش چیزی باز کند («یک بار ریست» که کاربر خواسته بود).
     // اگر به هر دلیلی (مثلاً نسخه‌ی خیلی قدیمی Inno Setup، یا آنتی‌ویروس) Restart Manager برنامه را
     // نبندد، بعد از چند ثانیه خودمان به‌عنوان راه احتیاطی می‌بندیمش تا کاربر با نسخه‌ی قدیمی گیر نکند.
+    private static void TryUnblockDownloadedFile(string path)
+    {
+        try { File.Delete(path + ":Zone.Identifier"); } catch { }
+    }
+
+    // ترتیب درست نصب خودکار:
+    // ۱) فایل دانلودشده را از Zone.Identifier اینترنت آزاد کن (وگرنه ویندوز ممکن است اجرای بی‌صدای
+    //    Setup را بی‌سروصدا بلاک کند).
+    // ۲) یک اسکریپت کمکی در Temp بنویس که صبر کند این فرآیند تمام شود، بعد Setup را بی‌صدا روی
+    //    همان پوشه‌ی در حال اجرا نصب کند، بعد exe جدید را باز کند.
+    // ۳) خود برنامه فوراً بسته شود تا فایل‌ها قفل نباشند.
+    // قبلاً Setup هم‌زمان با باز بودن برنامه اجرا می‌شد و بعد از ۱۰ ثانیه نسخه‌ی قدیمی دوباره
+    // باز می‌شد؛ در نتیجه نصب یا کامل نمی‌شد یا کاربر فکر می‌کرد نصب نشده.
     private void RunSilentInstallAndRestart(string installerPath)
     {
-        Process.Start(new ProcessStartInfo(installerPath)
+        TryUnblockDownloadedFile(installerPath);
+
+        string? exePath = null;
+        try { exePath = Process.GetCurrentProcess().MainModule?.FileName; } catch { }
+        if (string.IsNullOrWhiteSpace(exePath))
+            exePath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exePath))
+            exePath = Path.Combine(AppContext.BaseDirectory, "ScanBridgeTest.exe");
+
+        string installDir = Path.GetDirectoryName(exePath) ?? AppContext.BaseDirectory;
+        installDir = installDir.TrimEnd('\\');
+
+        string helperDir = Path.Combine(Path.GetTempPath(), "ScanBridgeUpdate");
+        Directory.CreateDirectory(helperDir);
+        string helperPath = Path.Combine(helperDir, "apply-update.cmd");
+        int pid = Environment.ProcessId;
+        string logPath = Path.Combine(helperDir, "setup.log");
+
+        string cmd = $@"@echo off
+setlocal
+:waitloop
+timeout /t 1 /nobreak >nul
+tasklist /FI ""PID eq {pid}"" | findstr /C:""{pid}"" >nul
+if not errorlevel 1 goto waitloop
+""{installerPath}"" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=""{installDir}"" /LOG=""{logPath}""
+if exist ""{exePath}"" start """" ""{exePath}""
+del ""%~f0""
+";
+        File.WriteAllText(helperPath, cmd, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        Process.Start(new ProcessStartInfo
         {
-            Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
-            UseShellExecute = true
+            FileName = helperPath,
+            UseShellExecute = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            WorkingDirectory = helperDir
         });
 
-        ShowStyledMessage(
-            _localization.CurrentLanguage == AppLanguage.English ? "Installing update..." : "در حال نصب بروزرسانی...",
-            _localization.CurrentLanguage == AppLanguage.English ? "The app will close and reopen automatically in a few seconds. Please wait." : "برنامه ظرف چند ثانیه خودکار بسته و با نسخه‌ی جدید دوباره باز می‌شود. لطفاً صبر کنید.",
-            false);
-
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(TimeSpan.FromSeconds(10));
-            // راه احتیاطی: اگر تا این لحظه برنامه هنوز باز است (یعنی Restart Manager به هر دلیلی آن
-            // را نبسته)، خودمان دستی می‌بندیمش و یک‌بار دیگر بازش می‌کنیم - تا فایل‌های به‌روزشده روی
-            // دیسک (که تا این لحظه معمولاً نصاب از قبل جایگزین کرده) واقعاً اجرا شوند.
-            try
-            {
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    try
-                    {
-                        string? exePath = Process.GetCurrentProcess().MainModule?.FileName;
-                        if (!string.IsNullOrEmpty(exePath) && File.Exists(exePath))
-                            Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
-                    }
-                    catch { }
-                    System.Windows.Application.Current.Shutdown();
-                });
-            }
-            catch { }
-        });
+        System.Windows.Application.Current.Shutdown();
     }
 
     private void MessagesButton_Click(object sender, RoutedEventArgs e)
