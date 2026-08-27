@@ -11468,13 +11468,13 @@ nQIDAQAB
     {
         string doneTitle = _localization.CurrentLanguage == AppLanguage.English ? "Ready to install" : "آماده‌ی نصب";
         string doneMessage = _localization.CurrentLanguage == AppLanguage.English
-            ? $"Version {version} is ready to install. Install and restart now? The app will close automatically and reopen with the new version."
-            : $"نسخه‌ی {version} آماده‌ی نصب است. الان نصب و راه‌اندازی مجدد شود؟ برنامه خودش بسته و با نسخه‌ی جدید دوباره باز می‌شود.";
+            ? $"Version {version} has been downloaded. The installer window will open so you can click Next and finish setup."
+            : $"نسخه‌ی {version} دانلود شد. با زدن نصب، پنجره‌ی Setup باز می‌شود تا خودتان Next بزنید و نصب را تمام کنید.";
 
         bool installConfirmed = await ShowUpdateConfirmOverlayAsync(
             doneTitle,
             doneMessage,
-            confirmText: _localization.CurrentLanguage == AppLanguage.English ? "Install & restart" : "نصب و راه‌اندازی مجدد",
+            confirmText: _localization.CurrentLanguage == AppLanguage.English ? "Install" : "نصب",
             cancelText: _localization.CurrentLanguage == AppLanguage.English ? "Later" : "بعداً");
 
         if (!installConfirmed)
@@ -11585,73 +11585,35 @@ nQIDAQAB
 
     private void UpdateConfirmCard_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e) => e.Handled = true;
 
-    // نصاب را با فلگ‌های بی‌صدای Inno Setup اجرا می‌کند - بدون هیچ صفحه/کلیکی از کاربر:
-    //   /VERYSILENT          هیچ رابط کاربری‌ای نشان داده نمی‌شود.
-    //   /SUPPRESSMSGBOXES    پیام‌های تاییدی احتمالی نصاب هم با پاسخ پیش‌فرض رد می‌شوند.
-    //   /NORESTART           حتی اگر نصاب فکر کند نیاز به ری‌استارت ویندوز است، درخواستش نمی‌کند.
-    //   /CLOSEAPPLICATIONS   از Windows Restart Manager استفاده می‌کند تا این برنامه را (چون فایل‌های
-    //                        در حال جایگزینی exe/dll را قفل کرده) خودش، در لحظه‌ی درست، تمیز ببندد -
-    //                        این از این‌که خودمان زودتر/دیرتر از موعد Shutdown را صدا بزنیم و باعث خطای
-    //                        «فایل قفل است» در نصاب شویم، مطمئن‌تر است.
-    //   /RESTARTAPPLICATIONS همان Restart Manager، بعد از اتمام نصب، دقیقاً همین برنامه را (که خودش
-    //                        بسته) دوباره از همان مسیر exe باز می‌کند - یعنی نسخه‌ی جدید، بدون این‌که
-    //                        کاربر خودش چیزی باز کند («یک بار ریست» که کاربر خواسته بود).
-    // اگر به هر دلیلی (مثلاً نسخه‌ی خیلی قدیمی Inno Setup، یا آنتی‌ویروس) Restart Manager برنامه را
-    // نبندد، بعد از چند ثانیه خودمان به‌عنوان راه احتیاطی می‌بندیمش تا کاربر با نسخه‌ی قدیمی گیر نکند.
     private static void TryUnblockDownloadedFile(string path)
     {
         try { File.Delete(path + ":Zone.Identifier"); } catch { }
     }
 
-    // ترتیب درست نصب خودکار:
-    // ۱) فایل دانلودشده را از Zone.Identifier اینترنت آزاد کن (وگرنه ویندوز ممکن است اجرای بی‌صدای
-    //    Setup را بی‌سروصدا بلاک کند).
-    // ۲) یک اسکریپت کمکی در Temp بنویس که صبر کند این فرآیند تمام شود، بعد Setup را بی‌صدا روی
-    //    همان پوشه‌ی در حال اجرا نصب کند، بعد exe جدید را باز کند.
-    // ۳) خود برنامه فوراً بسته شود تا فایل‌ها قفل نباشند.
-    // قبلاً Setup هم‌زمان با باز بودن برنامه اجرا می‌شد و بعد از ۱۰ ثانیه نسخه‌ی قدیمی دوباره
-    // باز می‌شد؛ در نتیجه نصب یا کامل نمی‌شد یا کاربر فکر می‌کرد نصب نشده.
+    // بعد از تایید کاربر، فایل Setup دانلودشده را مثل یک نصب معمولی باز می‌کند
+    // (پنجره‌ی Next اینستالر). برنامه را خودش نمی‌بندد.
     private void RunSilentInstallAndRestart(string installerPath)
     {
-        TryUnblockDownloadedFile(installerPath);
-
-        string? exePath = null;
-        try { exePath = Process.GetCurrentProcess().MainModule?.FileName; } catch { }
-        if (string.IsNullOrWhiteSpace(exePath))
-            exePath = Environment.ProcessPath;
-        if (string.IsNullOrWhiteSpace(exePath))
-            exePath = Path.Combine(AppContext.BaseDirectory, "ScanBridgeTest.exe");
-
-        string installDir = Path.GetDirectoryName(exePath) ?? AppContext.BaseDirectory;
-        installDir = installDir.TrimEnd('\\');
-
-        string helperDir = Path.Combine(Path.GetTempPath(), "ScanBridgeUpdate");
-        Directory.CreateDirectory(helperDir);
-        string helperPath = Path.Combine(helperDir, "apply-update.cmd");
-        int pid = Environment.ProcessId;
-        string logPath = Path.Combine(helperDir, "setup.log");
-
-        string cmd = $@"@echo off
-setlocal
-:waitloop
-timeout /t 1 /nobreak >nul
-tasklist /FI ""PID eq {pid}"" | findstr /C:""{pid}"" >nul
-if not errorlevel 1 goto waitloop
-""{installerPath}"" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=""{installDir}"" /LOG=""{logPath}""
-if exist ""{exePath}"" start """" ""{exePath}""
-del ""%~f0""
-";
-        File.WriteAllText(helperPath, cmd, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-
-        Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = helperPath,
-            UseShellExecute = true,
-            WindowStyle = ProcessWindowStyle.Hidden,
-            WorkingDirectory = helperDir
-        });
-
-        System.Windows.Application.Current.Shutdown();
+            if (!File.Exists(installerPath))
+            {
+                ShowStyledMessage(
+                    _localization.CurrentLanguage == AppLanguage.English ? "Installer not found" : "فایل نصب پیدا نشد",
+                    installerPath,
+                    true);
+                return;
+            }
+            TryUnblockDownloadedFile(installerPath);
+            Process.Start(new ProcessStartInfo(installerPath) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            ShowStyledMessage(
+                _localization.CurrentLanguage == AppLanguage.English ? "Could not open installer" : "باز کردن فایل نصب ممکن نشد",
+                ex.Message,
+                true);
+        }
     }
 
     private void MessagesButton_Click(object sender, RoutedEventArgs e)
