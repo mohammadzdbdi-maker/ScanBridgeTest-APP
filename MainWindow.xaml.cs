@@ -11063,6 +11063,9 @@ nQIDAQAB
                 }
             }
 
+            if (TryParseAppVersion(GetCurrentAppVersionString(), out var loadedCurrent))
+                RemoveStaleUpdateMessages(loadedCurrent);
+
             NoMessagesText.Visibility = Messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             UpdateMessagesBadgeCount();
         }
@@ -11205,6 +11208,58 @@ nQIDAQAB
         }
     }
 
+    // 2.1.4 و 2.1.4.0 را یکی حساب می‌کند تا مقایسه با JSON سایت غلط نشود.
+    private static bool TryParseAppVersion(string? text, out Version version)
+    {
+        version = new Version(0, 0, 0, 0);
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+        text = text.Trim();
+        int cut = text.IndexOfAny(new[] { '+', '-' });
+        if (cut >= 0)
+            text = text[..cut];
+        var parts = text.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2
+            || !int.TryParse(parts[0], out int major)
+            || !int.TryParse(parts[1], out int minor))
+            return false;
+        int build = 0;
+        int revision = 0;
+        if (parts.Length > 2)
+            int.TryParse(parts[2], out build);
+        if (parts.Length > 3)
+            int.TryParse(parts[3], out revision);
+        version = new Version(major, minor, build, revision);
+        return true;
+    }
+
+    private void RemoveStaleUpdateMessages(Version currentVersion)
+    {
+        var stale = Messages.Where(m =>
+        {
+            if (!m.IsUpdateDownload && string.IsNullOrWhiteSpace(m.UpdateVersion))
+                return false;
+            if (!TryParseAppVersion(m.UpdateVersion, out var msgVer))
+                return m.IsUpdateDownload;
+            return msgVer <= currentVersion;
+        }).ToList();
+        if (stale.Count == 0)
+            return;
+        foreach (var s in stale)
+        {
+            Messages.Remove(s);
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(s.DownloadedInstallerPath) && File.Exists(s.DownloadedInstallerPath))
+                    File.Delete(s.DownloadedInstallerPath);
+            }
+            catch { }
+        }
+        SaveMessagesToDisk();
+        UpdateMessagesBadgeCount();
+        NoMessagesText.Visibility = Messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     // بررسی بروزرسانی: یک فایل JSON ساده روی سایت با فرمت {"version": "...", "message": "...",
     // "url": "..."} می‌خواند (دقیقاً همان فرمتی که اپ اندروید هم برای همین کار استفاده می‌کند - هیچ
     // سرور اختصاصی/کد سمت سرور جدید لازم نیست، فقط کافی است بعد از هر انتشار نسخه‌ی جدید همین یک
@@ -11218,7 +11273,10 @@ nQIDAQAB
     {
         try
         {
-            using var response = await _updateCheckHttpClient.GetAsync(AppUpdateCheckUrl);
+            string checkUrl = AppUpdateCheckUrl + "?t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            using var request = new HttpRequestMessage(HttpMethod.Get, checkUrl);
+            request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true, NoStore = true };
+            using var response = await _updateCheckHttpClient.SendAsync(request);
             if (!response.IsSuccessStatusCode)
             {
                 if (manualTrigger)
@@ -11232,41 +11290,19 @@ nQIDAQAB
             string updateMessageBody = doc.RootElement.TryGetProperty("message", out var mProp) ? mProp.GetString() ?? string.Empty : string.Empty;
             string downloadUrl = doc.RootElement.TryGetProperty("url", out var uProp) ? uProp.GetString() ?? string.Empty : string.Empty;
 
-            // فقط «version» برای این‌که بفهمیم درخواست واقعاً موفق بوده و قابل‌مقایسه است لازم است؛
-            // «message»/«url» خالی یعنی سرور جواب داده ولی فعلاً بروزرسانی‌ای تعریف نشده (دقیقاً حالت
-            // پیش‌فرض فایل روی سرور) - این را نباید با شکست واقعی اتصال/سرور یکی گرفت، وگرنه بررسی
-            // دستی همیشه پیغام «ناموفق بود» می‌دهد حتی وقتی همه‌چیز درست کار می‌کند (این باگ همان
-            // چیزی بود که کاربر گزارش داد).
             if (string.IsNullOrWhiteSpace(remoteVersionText)
-                || !Version.TryParse(remoteVersionText, out var remoteVersion)
-                || !Version.TryParse(GetCurrentAppVersionString(), out var currentVersion))
+                || !TryParseAppVersion(remoteVersionText, out var remoteVersion)
+                || !TryParseAppVersion(GetCurrentAppVersionString(), out var currentVersion))
             {
                 if (manualTrigger)
                     ShowUpdateCheckFailedMessage();
                 return;
             }
 
+            RemoveStaleUpdateMessages(currentVersion);
+
             if (remoteVersion <= currentVersion)
             {
-                var stale = Messages.Where(m => m.IsUpdateDownload).ToList();
-                if (stale.Count > 0)
-                {
-                    foreach (var s in stale)
-                    {
-                        Messages.Remove(s);
-                        // اگر فایل نصب این نسخه‌ی قدیمی روی دیسک مانده (دانلود شده ولی هیچ‌وقت نصب
-                        // نشده)، پاکش می‌کنیم تا فضای دیسک کاربر بی‌دلیل اشغال نماند.
-                        try
-                        {
-                            if (!string.IsNullOrWhiteSpace(s.DownloadedInstallerPath) && File.Exists(s.DownloadedInstallerPath))
-                                File.Delete(s.DownloadedInstallerPath);
-                        }
-                        catch { }
-                    }
-                    NoMessagesText.Visibility = Messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-                    SaveMessagesToDisk();
-                    UpdateMessagesBadgeCount();
-                }
 
                 if (manualTrigger)
                 {
