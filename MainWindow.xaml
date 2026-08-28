@@ -4749,11 +4749,13 @@
                         </StackPanel>
                     </Grid>
 
+                    <!-- گوشه‌ها عمداً تیز است، نه گرد: WebView2 وقتی داخل ظرفی با ClipToBounds/CornerRadius
+                         باشد مجبور می‌شود از رندر سریع windowed به رندر windowless (کند، بدون شتاب‌دهی
+                         کامل سخت‌افزاری) سوییچ کند - همان چیزی که باعث کند بودن محسوس مرورگر داخلی نسبت
+                         به کروم واقعی می‌شد. حذف ClipToBounds/CornerRadius این مشکل را حل می‌کند. -->
                     <Border Grid.Row="1"
-                            CornerRadius="16"
                             BorderBrush="#E5E7EB"
-                            BorderThickness="1"
-                            ClipToBounds="True">
+                            BorderThickness="1">
                         <Grid x:Name="TtTeckWebViewHost" />
                     </Border>
                 </Grid>
