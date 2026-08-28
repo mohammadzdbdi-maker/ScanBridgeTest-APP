@@ -75,6 +75,7 @@ public sealed class PriceLookupService
         public string BrandOwner { get; set; } = "";
         public decimal ConsumerPricePerUnit { get; set; }
         public decimal TotalPriceRial { get; set; }
+        public string Irc { get; set; } = "";
     }
 
     // ---------- API ----------
@@ -251,6 +252,31 @@ public sealed class PriceLookupService
             {
                 return new PriceResult { Success = false, Message = "❌ پاسخ نامعتبر از سرور: " + ex.Message };
             }
+            // بعضی رکوردهای تی‌تک (مخصوصاً آن‌هایی که ProductId‌شان از جست‌وجوی «نام»/کومپکت آمده)
+            // وقتی مستقیم با ProductId از GetProductsForPharmacies خوانده می‌شوند، کدژنریک یا
+            // تعداد بسته ندارند — اما همان IRC در یک رکورد دیگر (که با جست‌وجوی متنیِ همان IRC
+            // پیدا می‌شود) این فیلدها را کامل دارد. برای اینکه دیگر «—» ناقص نبینیم، یک‌بار دیگر
+            // با IRC جست‌وجو می‌کنیم و فقط فیلدهای خالی را پر می‌کنیم (چیزی را جایگزین نمی‌کنیم).
+            if (result.Success && !string.IsNullOrWhiteSpace(result.Irc)
+                && (string.IsNullOrWhiteSpace(result.GenericCode) || string.IsNullOrWhiteSpace(result.PackageCount)))
+            {
+                try
+                {
+                    var byIrc = await TryFetchPharmaciesListAsync($"searchExp={Uri.EscapeDataString(result.Irc)}", token);
+                    if (byIrc.Count > 0)
+                    {
+                        var match = SelectProductMatchingIrc(byIrc, result.Irc);
+                        if (string.IsNullOrWhiteSpace(result.GenericCode) && !string.IsNullOrWhiteSpace(match.GenericCode))
+                            result.GenericCode = match.GenericCode;
+                        if (string.IsNullOrWhiteSpace(result.PackageCount) && !string.IsNullOrWhiteSpace(match.PackageCount))
+                            result.PackageCount = match.PackageCount;
+                        if (string.IsNullOrWhiteSpace(result.BrandOwner) && !string.IsNullOrWhiteSpace(match.BrandOwner))
+                            result.BrandOwner = match.BrandOwner;
+                    }
+                }
+                catch { /* بی‌خیال؛ همون داده‌ی نسبتاً کامل قبلی نمایش داده می‌شود */ }
+            }
+
             // نوع فرآورده باید «زیر فرآورده دارو(یی)» باشد؛ مقدار واقعی تی‌تک «زیر فرآورده دارو»
             // (بدون ی پایانی) است، پس با پیشوند نرمال‌شده‌ی «زیرفرآوردهدارو» چک می‌کنیم.
             string normalized = NormalizePersian(result.ProductType);
@@ -286,6 +312,7 @@ public sealed class PriceLookupService
             ConsumerPricePerUnit = item.ConsumerPricePerUnit,
             TotalPriceRial = item.TotalPriceRial,
             FoundButNotDrugSubgroup = !isDrugSub && !string.IsNullOrWhiteSpace(ptype),
+            Irc = item.Irc,
         };
     }
 
@@ -417,6 +444,7 @@ public sealed class PriceLookupService
             ProductType = GetString(first, "ProductType", "productType", "Type", "type", "Category", "category"),
             ConsumerPricePerUnit = unitPrice,
             TotalPriceRial = unitPrice > 0 && pack > 0 ? unitPrice * pack : unitPrice,
+            Irc = GetString(first, "Irc", "irc", "IRC"),
         };
     }
 
@@ -480,6 +508,21 @@ public sealed class PriceLookupService
     }
 
     /// <summary>
+    /// GetCompactProducts با Name=IRC یک جست‌وجوی متنی معمولی است، نه فیلتر دقیق IRC - می‌تواند
+    /// چند فرآورده‌ی نزدیک/نامرتبط (مثلاً همان دارو ولی با شرکت و قیمت متفاوت، مثل «Novo Nordisk»
+    /// در برابر «نوو نوردیسک پارس») برگرداند. قبلاً این‌جا کورکورانه اولین ردیف (products[0])
+    /// انتخاب می‌شد که می‌توانست فرآورده‌ی اشتباه (و قیمت اشتباه) را نشان بدهد. حالا دقیقاً همان
+    /// ردیفی که IRCاش با IRC اسکن‌شده کاملاً یکی است انتخاب می‌شود؛ فقط اگر هیچ‌کدام دقیقاً منطبق
+    /// نبود (که نباید پیش بیاید) به‌عنوان آخرین راه‌حل به ردیف اول برمی‌گردیم.
+    /// </summary>
+    private static ProductSummary SelectProductMatchingIrc(List<ProductSummary> products, string irc)
+    {
+        string target = (irc ?? "").Trim();
+        var exactMatch = products.FirstOrDefault(p => string.Equals((p.Irc ?? "").Trim(), target, StringComparison.Ordinal));
+        return exactMatch ?? products[0];
+    }
+
+    /// <summary>
     /// مسیر سریع: اگر IRC از قبل معلوم است (مثلاً از استعلام اولیه تی‌تک بعد از اسکن)،
     /// مستقیم جست‌وجو کن بدون رفتن به InstanceCatalog.
     /// </summary>
@@ -488,10 +531,11 @@ public sealed class PriceLookupService
         var products = await SearchProductsAsync(irc, token);
         if (products.Count == 0)
             return new PriceResult { Success = false, Message = "❌ فرآورده‌ای برای IRC «" + irc + "» یافت نشد" };
-        return await GetProductDetailsAsync(products[0].ProductId, token);
+        var match = SelectProductMatchingIrc(products, irc);
+        return await GetProductDetailsAsync(match.ProductId, token);
     }
 
-    /// <summary>مسیر کامل بارکد → قیمت (کاتالوگ + انتخاب اولین فرآورده)</summary>
+    /// <summary>مسیر کامل بارکد → قیمت (کاتالوگ + انتخاب فرآورده‌ای که واقعاً همان IRC اسکن‌شده را دارد)</summary>
     public async Task<PriceResult> LookupByBarcodeAsync(string barcode, string? token = null)
     {
         string? irc = await GetIrcFromBarcodeAsync(barcode, token);
@@ -502,7 +546,8 @@ public sealed class PriceLookupService
         if (products.Count == 0)
             return new PriceResult { Success = false, Message = "❌ فرآورده‌ای برای IRC «" + irc + "» یافت نشد" };
 
-        return await GetProductDetailsAsync(products[0].ProductId, token);
+        var match = SelectProductMatchingIrc(products, irc);
+        return await GetProductDetailsAsync(match.ProductId, token);
     }
 
     // ---------- تفکیک اسم فرآورده به برند / شکل دارویی / دوز ----------

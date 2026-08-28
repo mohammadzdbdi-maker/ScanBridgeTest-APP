@@ -182,7 +182,11 @@ public partial class App : System.Windows.Application
         {
             LogStartupTrace("ForceShowMainWindow called.");
             _mainWindow.ShowInTaskbar = true;
-            _mainWindow.WindowState = WindowState.Normal;
+            // قبلاً اینجا WindowState.Normal بود که همیشه WindowState="Maximized" تعریف‌شده در
+            // MainWindow.xaml را بی‌اثر می‌کرد - یعنی برنامه هیچ‌وقت واقعاً تمام‌صفحه باز نمی‌شد
+            // (نه بار اول، نه دفعات بعد)، حتی وقتی از تری هم دوباره باز می‌شد. حالا با Maximized
+            // هماهنگ با تنظیم پیش‌فرض XAML، برنامه همیشه تمام‌صفحه باز می‌شود.
+            _mainWindow.WindowState = WindowState.Maximized;
             _mainWindow.Show();
             _mainWindow.Activate();
             _mainWindow.Topmost = true;

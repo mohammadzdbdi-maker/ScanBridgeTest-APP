@@ -792,9 +792,16 @@
                     CornerRadius="24"
                     Padding="28"
                     Width="680"
+                    Margin="0,16,0,16"
+                    MaxHeight="{Binding ActualHeight, ElementName=LicenseOverlay}"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     MouseDown="LicenseCard_MouseDown">
+                <!-- گفتگوی لایسنس داخل ScrollViewer قرار گرفت و ارتفاع آن به ارتفاع پنجره محدود شد:
+                     قبلاً وقتی پنجره‌ی اصلی Maximize نبود، این کارت با محتوای زیاد (وضعیت فعال + جدول
+                     اطلاعات) از پایین پنجره بیرون می‌زد و دکمه‌های «فعال‌سازی آنلاین»/«بستن» اصلاً دیده
+                     یا کلیک نمی‌شدند. حالا در آن حالت به‌جای بیرون‌زدن، اسکرول‌بار نشان داده می‌شود. -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
                     <TextBlock x:Name="LicenseTitleText"
                                Text="لایسنس Scanbridge"
@@ -941,6 +948,7 @@
                          غیرفعال شد (نگاه کنید به یادداشت همان‌جا) - پس این دکمه‌ها دیگر حتی در صورت
                          فعال‌شدن دوباره‌ی Visibility هم کار نمی‌کردند، ولی برای پاک‌سازی کامل حذف شدند. -->
                 </StackPanel>
+                </ScrollViewer>
             </Border>
         </Grid>
 
@@ -1098,16 +1106,16 @@
                         ToolTip="قیمت تعداد دلخواه = تعداد × قیمت مصرف‌کننده" />
                 <Button Grid.Column="2" Content="✕" Click="PriceResultCloseButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#DC2626" Foreground="White" Width="34" Height="34" Padding="0" FontWeight="Bold" FontSize="16" />
             </Grid>
-            <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer MaxHeight="660" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
-                    <Border x:Name="PriceResultNotDrugWarning" Background="#FEF2F2" BorderBrush="#FCA5A5" BorderThickness="1" CornerRadius="14" Padding="12" Margin="0,0,0,10" Visibility="Collapsed">
+                    <Border x:Name="PriceResultNotDrugWarning" Background="#FEF2F2" BorderBrush="#FCA5A5" BorderThickness="1" CornerRadius="14" Padding="10" Margin="0,0,0,8" Visibility="Collapsed">
                         <TextBlock x:Name="PriceResultWarningText" Text="&#1575;&#1610;&#1606; &#1605;&#1581;&#1589;&#1608;&#1604; &#1583;&#1585; &#1586;&#1610;&#1585;&#1711;&#1585;&#1608;&#1607; &#1583;&#1575;&#1585;&#1608;&#1610;&#1610; &#1606;&#1610;&#1587;&#1578;" FontSize="13" Foreground="#B91C1C" TextWrapping="Wrap" />
                     </Border>
-                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="14" Margin="0,0,0,10">
+                    <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="16" Padding="12" Margin="0,0,0,8">
                         <StackPanel>
-                            <TextBlock Text="نام فرآورده" FontSize="11" FontWeight="Bold" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,0,0,8" />
-                            <TextBlock x:Name="PriceResultFaName" Text="-" FontSize="16" FontWeight="SemiBold" Foreground="#0F172A" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Stretch" Margin="0,0,0,6" />
-                            <TextBlock x:Name="PriceResultEnName" Text="-" FontSize="13.5" Foreground="#475569" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Stretch" FlowDirection="LeftToRight" />
+                            <TextBlock Text="نام فرآورده" FontSize="11" FontWeight="Bold" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,0,0,6" />
+                            <TextBlock x:Name="PriceResultFaName" Text="-" FontSize="15.5" FontWeight="SemiBold" Foreground="#0F172A" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Stretch" Margin="0,0,0,5" />
+                            <TextBlock x:Name="PriceResultEnName" Text="-" FontSize="13" Foreground="#475569" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Stretch" FlowDirection="LeftToRight" />
                         </StackPanel>
                     </Border>
                     <Grid>
@@ -1118,29 +1126,35 @@
                             <ColumnDefinition Width="8" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <Border Grid.Column="0" Background="#EEF2FF" BorderBrush="#C7D2FE" BorderThickness="1" CornerRadius="14" Padding="10,12">
+                        <Border Grid.Column="0" Background="#EEF2FF" BorderBrush="#C7D2FE" BorderThickness="1" CornerRadius="14" Padding="10,9">
                             <StackPanel>
-                                <TextBlock Text="کد ژنریک" FontSize="11" FontWeight="Bold" Foreground="#4338CA" HorizontalAlignment="Center" Margin="0,0,0,6" />
+                                <TextBlock Text="کد ژنریک" FontSize="11" FontWeight="Bold" Foreground="#4338CA" HorizontalAlignment="Center" Margin="0,0,0,5" />
                                 <TextBlock x:Name="PriceResultGenericCode" Text="-" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" TextAlignment="Center" HorizontalAlignment="Stretch" FlowDirection="LeftToRight" TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
-                        <Border Grid.Column="2" Background="#F0FDF4" BorderBrush="#BBF7D0" BorderThickness="1" CornerRadius="14" Padding="10,12">
+                        <Border Grid.Column="2" Background="#F0FDF4" BorderBrush="#BBF7D0" BorderThickness="1" CornerRadius="14" Padding="10,9">
                             <StackPanel>
-                                <TextBlock Text="تعداد در بسته" FontSize="11" FontWeight="Bold" Foreground="#15803D" HorizontalAlignment="Center" Margin="0,0,0,6" />
+                                <TextBlock Text="تعداد در بسته" FontSize="11" FontWeight="Bold" Foreground="#15803D" HorizontalAlignment="Center" Margin="0,0,0,5" />
                                 <TextBlock x:Name="PriceResultPackageCount" Text="-" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A" TextAlignment="Center" HorizontalAlignment="Stretch" FlowDirection="LeftToRight" />
                             </StackPanel>
                         </Border>
-                        <Border Grid.Column="4" Background="#FFF7ED" BorderBrush="#FED7AA" BorderThickness="1" CornerRadius="14" Padding="10,12">
+                        <Border Grid.Column="4" Background="#FFF7ED" BorderBrush="#FED7AA" BorderThickness="1" CornerRadius="14" Padding="10,9">
                             <StackPanel>
-                                <TextBlock Text="شرکت سازنده" FontSize="11" FontWeight="Bold" Foreground="#C2410C" HorizontalAlignment="Center" Margin="0,0,0,6" />
+                                <TextBlock Text="شرکت سازنده" FontSize="11" FontWeight="Bold" Foreground="#C2410C" HorizontalAlignment="Center" Margin="0,0,0,5" />
                                 <TextBlock x:Name="PriceResultBrandOwner" Text="-" FontSize="14" FontWeight="SemiBold" Foreground="#0F172A" TextAlignment="Center" HorizontalAlignment="Stretch" TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
                     </Grid>
-                    <Border x:Name="PriceResultPriceBox" Background="#F0FDF4" BorderBrush="#86EFAC" BorderThickness="1.5" CornerRadius="14" Padding="14" Margin="0,12,0,0">
+                    <Border x:Name="PriceResultIrcBox" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="14" Padding="10,8" Margin="0,6,0,0">
+                        <StackPanel>
+                            <TextBlock Text="IRC" FontSize="11" FontWeight="Bold" Foreground="#475569" HorizontalAlignment="Center" Margin="0,0,0,5" />
+                            <TextBlock x:Name="PriceResultIrcText" Text="-" FontSize="14" FontWeight="SemiBold" Foreground="#0F172A" TextAlignment="Center" HorizontalAlignment="Stretch" FlowDirection="LeftToRight" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="PriceResultPriceBox" Background="#F0FDF4" BorderBrush="#86EFAC" BorderThickness="1.5" CornerRadius="14" Padding="12" Margin="0,10,0,0">
                         <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="&#1602;&#1610;&#1605;&#1578; &#1605;&#1589;&#1585;&#1601; &#1705;&#1606;&#1606;&#1583;&#1607;" FontSize="12" FontWeight="Bold" Foreground="#15803D" HorizontalAlignment="Center" Margin="0,0,0,4" />
-                            <TextBlock x:Name="PriceResultPriceText" Text="-" FontSize="32" FontWeight="ExtraBold" Foreground="#16A34A" FlowDirection="LeftToRight" HorizontalAlignment="Center" />
+                            <TextBlock Text="&#1602;&#1610;&#1605;&#1578; &#1605;&#1589;&#1585;&#1601; &#1705;&#1606;&#1606;&#1583;&#1607;" FontSize="12" FontWeight="Bold" Foreground="#15803D" HorizontalAlignment="Center" Margin="0,0,0,3" />
+                            <TextBlock x:Name="PriceResultPriceText" Text="-" FontSize="30" FontWeight="ExtraBold" Foreground="#16A34A" FlowDirection="LeftToRight" HorizontalAlignment="Center" />
                             <TextBlock Text="&#1585;&#1610;&#1575;&#1604;" FontSize="13" FontWeight="Bold" Foreground="#15803D" HorizontalAlignment="Center" />
                         </StackPanel>
                     </Border>
@@ -4209,12 +4223,14 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
                                 <StackPanel Grid.Row="0">
-                                    <TextBlock Text="🔌 اینترنت جانبی در اتصال USB"
+                                    <TextBlock x:Name="UsbInternetSectionTitle"
+                                               Text="🔌 اینترنت جانبی در اتصال USB"
                                                FontSize="14"
                                                FontWeight="Bold"
                                                Foreground="#9A3412"
                                                Margin="0,0,0,6" />
-                                    <TextBlock Text="وقتی گوشی با کابل وصل است و اینترنت سیستم قطع شده، این دکمه متریک آداپتور USB را بالا می‌برد تا اینترنت از مسیر وای‌فای/اترنت ادامه پیدا کند و اسکن با کابل هم سالم بماند (یک بار اجازه‌ی مدیر می‌گیرد)."
+                                    <TextBlock x:Name="UsbInternetSectionDescription"
+                                               Text="وقتی گوشی با کابل وصل است و اینترنت سیستم قطع شده، این دکمه متریک آداپتور USB را بالا می‌برد تا اینترنت از مسیر وای‌فای/اترنت ادامه پیدا کند و اسکن با کابل هم سالم بماند (یک بار اجازه‌ی مدیر می‌گیرد)."
                                                FontSize="11"
                                                Foreground="#4B5563"
                                                TextWrapping="Wrap" />

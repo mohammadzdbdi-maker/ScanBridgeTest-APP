@@ -107,6 +107,12 @@ nQIDAQAB
     // ConcurrentDictionary ایمن شده، ولی File.WriteAllText اگر از دو ترد هم‌زمان صدا زده شود
     // می‌تواند فایل را خراب کند یا با خطای اشغال‌بودن فایل شکست بخورد.
     private readonly object _ttTeckDetailsCacheFileLock = new();
+    // بلافاصله بعد از اینکه اسکن یک بارکد، نام دارو را (سریع) پیدا کرد، اگر IRC هم معلوم بود،
+    // بدون منتظر ماندن (fire-and-forget) قیمت را هم موازی از تی‌تک می‌گیریم و اینجا نگه می‌داریم؛
+    // مثل اینکه هم‌زمان با تب «اسم»، یک تب دیگر هم برای «قیمت» باز شده باشد. وقتی کاربر روی دکمه‌ی
+    // زرد «قیمت» می‌زند، اول این کش را چک می‌کنیم - اگر پیش‌واکشی از قبل تمام یا در حال انجام بود،
+    // دیگر لازم نیست از صفر (IRC + قیمت) دوباره درخواست بزنیم و صبر کنیم.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<Services.PriceLookupService.PriceResult>> _pricePrefetchTasksByBarcode = new();
     private readonly Dictionary<string, string> _deviceAliases = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ConnectedDeviceInfo> _lastConnectedDevices = new();
     private bool _usbInternetTipShown;
@@ -811,6 +817,14 @@ nQIDAQAB
         TtacPanelButton.Content = _localization.GetString("TtTeckPanel");
         CargoDeliveryPanelButton.Content = _localization.GetString("CargoDelivery");
         ReceiveStatusPanelButton.Content = _localization.GetString("ReceiveStatus");
+        if (HighUsageBarcodePanelButton != null) HighUsageBarcodePanelButton.Content = _localization.GetString("HighUsageBarcodePanel");
+        if (PriceLookupPanelButton != null) PriceLookupPanelButton.Content = _localization.GetString("PriceLookupPanel");
+        if (HighUsageWidgetEnableText != null) HighUsageWidgetEnableText.Text = _localization.GetString("HighUsageWidgetEnable");
+        if (AppUpdateSectionTitle != null) AppUpdateSectionTitle.Text = _localization.GetString("AppUpdateSectionTitle");
+        if (CheckForUpdateButton != null) CheckForUpdateButton.Content = _localization.GetString("CheckForUpdateButton");
+        if (UsbInternetSectionTitle != null) UsbInternetSectionTitle.Text = _localization.GetString("UsbInternetSectionTitle");
+        if (UsbInternetSectionDescription != null) UsbInternetSectionDescription.Text = _localization.GetString("UsbInternetSectionDescription");
+        if (FixUsbInternetButton != null) FixUsbInternetButton.Content = _localization.GetString("FixUsbInternetButton");
         PrintQrButton.Content = _localization.GetString("Print");
         SupportButton.Content = _localization.GetString("Support");
         SupportMessageText.Text = _localization.GetString("SupportMessageText");
@@ -7052,20 +7066,15 @@ nQIDAQAB
         if (!string.IsNullOrWhiteSpace(claimUser) && string.Equals(claimUser, requested, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        try
-        {
-            var saved = LoadSavedTtacLogins()
-                .FirstOrDefault(x => string.Equals(x.Username, requested, StringComparison.OrdinalIgnoreCase));
-            string? display = TryExtractTtacDisplayNameFromToken(token);
-            if (saved != null && !string.IsNullOrWhiteSpace(saved.PharmacyName) && !string.IsNullOrWhiteSpace(display))
-            {
-                if (display.Contains(saved.PharmacyName, StringComparison.OrdinalIgnoreCase)
-                    || saved.PharmacyName.Contains(display, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-        }
-        catch { }
-
+        // قبلاً اگر توکن فعلی هیچ‌کدام از کلیدهای بالا را نداشت، با «تطابق تقریبی» نام نمایشی
+        // داروخانه (Contains در هر دو جهت) به‌عنوان راه دوم تشخیص می‌داد که همان داروخانه است.
+        // این باعث می‌شد وقتی نام دو داروخانه‌ی متفاوت هم‌پوشانی داشت (مثلاً دو شعبه‌ی یک
+        // زنجیره، یا یکی زیرمجموعه‌ی نام دیگری بود) به اشتباه «همین داروخانه از قبل وارد است»
+        // تشخیص داده شود؛ نتیجه این بود که مرورگر داخلی اصلاً دوباره باز/ناوبری نمی‌شد و کاربر
+        // با اینکه واقعاً داروخانه عوض نشده بود، پیام موفقیت می‌دید (باید یک‌بار مرورگر را
+        // خودش می‌بست و باز می‌کرد تا واقعاً به داروخانه‌ی درست برود). چون تشخیص نادرستِ «همان
+        // داروخانه است» خیلی گران‌تر از یک ورود مجدد غیرضروری (که فقط چند ثانیه طول می‌کشد) است،
+        // این راه دوم را حذف کردیم؛ فقط تطابق دقیق شناسه‌ی کاربری داخل خودِ توکن معتبر است.
         return false;
     }
 
@@ -9334,6 +9343,7 @@ nQIDAQAB
                 _ttTeckDetailsByBarcode[record.Barcode] = result;
                 SaveTtTeckDetailsCache();
                 TryAutoOpenInfantFormulaRegistration(record);
+                StartPricePrefetchForBarcode(record.Barcode, result.IRC);
 
                 if (showResultMessage)
                 {
@@ -9364,6 +9374,22 @@ nQIDAQAB
             // نتیجه‌ی استعلام فقط در حافظه می‌ماند و با ری‌استارت برنامه از بین می‌رود.
             SaveHistoryItemsToCsv();
         }
+    }
+
+    /// <summary>
+    /// موازی با نمایش نام دارو بعد از اسکن، قیمت را هم (بدون منتظر ماندن) از تی‌تک شروع به
+    /// گرفتن می‌کند - دقیقاً مثل باز بودن هم‌زمان دو تب: یکی برای اسم، یکی برای قیمت. نتیجه
+    /// (چه موفق چه خطا) در _pricePrefetchTasksByBarcode می‌ماند تا اگر کاربر روی دکمه‌ی «قیمت»
+    /// زد، از همین‌جا (سریع) جواب بگیرد، نه اینکه دوباره از صفر IRC و قیمت را استعلام بگیرد.
+    /// </summary>
+    private void StartPricePrefetchForBarcode(string barcode, string? irc)
+    {
+        if (string.IsNullOrWhiteSpace(barcode) || string.IsNullOrWhiteSpace(irc))
+            return;
+        if (_pricePrefetchTasksByBarcode.ContainsKey(barcode))
+            return;
+
+        _pricePrefetchTasksByBarcode[barcode] = PriceLookup.LookupByIrcAsync(irc, PriceLookupToken);
     }
 
     private string GetLocalizedLookupFailedTitle()
@@ -12037,6 +12063,8 @@ nQIDAQAB
         PriceResultGenericCode.Text = string.IsNullOrWhiteSpace(result.GenericCode) ? "—" : result.GenericCode;
         PriceResultPackageCount.Text = string.IsNullOrWhiteSpace(result.PackageCount) ? "—" : result.PackageCount;
         PriceResultBrandOwner.Text = string.IsNullOrWhiteSpace(result.BrandOwner) ? "—" : result.BrandOwner;
+        PriceResultIrcText.Text = string.IsNullOrWhiteSpace(result.Irc) ? "—" : result.Irc;
+        PriceResultIrcBox.Visibility = string.IsNullOrWhiteSpace(result.Irc) ? Visibility.Collapsed : Visibility.Visible;
         PriceResultNotDrugWarning.Visibility = result.FoundButNotDrugSubgroup ? Visibility.Visible : Visibility.Collapsed;
         PriceResultPriceBox.Visibility = result.TotalPriceRial > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (result.TotalPriceRial > 0)
@@ -12196,7 +12224,6 @@ nQIDAQAB
     // ================= استعلام قیمت فرآورده از تی‌تک =================
 
     private Services.PriceLookupService? _priceLookupService;
-    private string _lastScannedIrc = "";
 
     private Services.PriceLookupService PriceLookup => _priceLookupService ??= new Services.PriceLookupService();
 
@@ -12325,7 +12352,28 @@ nQIDAQAB
 
     private async Task LookupHistoryRowPriceAsync(string barcode)
     {
-        string? irc = _lastScannedIrc;
+        // اگر همان لحظه‌ی اسکن، پیش‌واکشیِ موازیِ قیمت برای این بارکد شروع شده بود (چه تمام شده
+        // باشد چه هنوز در حال انجام)، از همان استفاده کن - نه اینکه از صفر IRC و قیمت را دوباره
+        // (با تأخیر) استعلام بگیری.
+        if (_pricePrefetchTasksByBarcode.TryGetValue(barcode, out var prefetchTask))
+        {
+            try
+            {
+                var prefetched = await prefetchTask;
+                ShowPriceResult(prefetched);
+                return;
+            }
+            catch
+            {
+                // پیش‌واکشی خطا خورد (مثلاً نشست تی‌تک وقت آن منقضی شده بود) - بی‌صدا برو سراغ
+                // مسیر معمولی زیر و دوباره تلاش کن.
+                _pricePrefetchTasksByBarcode.TryRemove(barcode, out _);
+            }
+        }
+
+        // اگر پیش‌واکشی نبود ولی IRC از همان استعلام نامِ سریعِ بعد از اسکن در کش مانده، از آن
+        // استفاده کن تا لازم نباشد یک بار دیگر InstanceCatalog صدا زده شود.
+        string? irc = _ttTeckDetailsByBarcode.TryGetValue(barcode, out var cachedDetails) ? cachedDetails.IRC : null;
         if (string.IsNullOrWhiteSpace(irc))
             irc = await PriceLookup.GetIrcFromBarcodeAsync(barcode, PriceLookupToken);
         var result = !string.IsNullOrWhiteSpace(irc)
@@ -12456,9 +12504,90 @@ nQIDAQAB
         await RunPriceLookupAsync(query, isFromScan: false);
     }
 
+    /// <summary>
+    /// وقتی چند ردیف اسمشان (و تعداد در بسته‌شان) کاملاً یکی است - یعنی همان فرآورده با
+    /// بارکد/سری ساخت متفاوت (مثلاً ده‌ها ردیف «نووراپید فلکس‌پن») - فقط پرقیمت‌ترین را نگه
+    /// می‌دارد تا کاربر مجبور نباشد بین ردیف‌های تکراری دستی بگردد.
+    /// نکته‌ی مهم: توی جست‌وجوی بر اساس نام (GetCompactProducts)، قیمت هیچ ردیفی از قبل معلوم
+    /// نیست (همه صفر است) - اگر همون‌جا روی قیمتِ صفر مقایسه می‌کردیم، همیشه اولین موردِ لیست
+    /// (تصادفی) نگه داشته می‌شد، نه واقعاً پرقیمت‌ترین. برای همین، فقط برای گروه‌هایی که واقعاً
+    /// بیش از یک عضو دارند (یعنی همون گروه‌های تکراری)، قیمت هر عضو را همین‌جا موازی از تی‌تک
+    /// می‌گیریم تا مقایسه‌ی «بیشترین قیمت» درست باشد - نه فقط یه حدس روی داده‌ی صفر.
+    /// </summary>
+    private async Task<List<Services.PriceLookupService.ProductSummary>> DeduplicateSimilarProductsKeepingHighestPriceAsync(
+        List<Services.PriceLookupService.ProductSummary> products)
+    {
+        if (products.Count <= 1)
+            return products;
+
+        string NormalizeKey(Services.PriceLookupService.ProductSummary p)
+        {
+            string title = System.Text.RegularExpressions.Regex.Replace((p.Title ?? "").Trim(), @"\s+", " ");
+            string pack = (p.PackageCount ?? "").Trim();
+            return title + "|" + pack;
+        }
+
+        var groups = products.GroupBy(NormalizeKey).ToList();
+        var result = new List<Services.PriceLookupService.ProductSummary>(groups.Count);
+
+        foreach (var group in groups)
+        {
+            var members = group.ToList();
+            if (members.Count == 1)
+            {
+                result.Add(members[0]);
+                continue;
+            }
+
+            // اگر همه‌ی اعضای این گروه از قبل قیمت واقعی دارند (مثلاً از جست‌وجوی کد ژنریک که
+            // GetProductsForPharmacies قیمت را از همون اول می‌دهد)، دیگر لازم نیست دوباره از
+            // تی‌تک بگیریم.
+            if (members.All(p => p.HasDirectPrice))
+            {
+                result.Add(members.OrderByDescending(p => Math.Max(p.TotalPriceRial, p.ConsumerPricePerUnit)).First());
+                continue;
+            }
+
+            // وگرنه (جست‌وجوی بر اساس نام) قیمت واقعیِ هر عضوِ همین گروهِ تکراری را - نه کل لیست،
+            // فقط همین چندتا - موازی می‌گیریم تا واقعاً پرقیمت‌ترین پیدا شود.
+            var detailTasks = members.Select(p => PriceLookup.GetProductDetailsAsync(p.ProductId, PriceLookupToken)).ToList();
+            Services.PriceLookupService.PriceResult?[] details;
+            try { details = await Task.WhenAll(detailTasks); }
+            catch { details = new Services.PriceLookupService.PriceResult?[members.Count]; }
+
+            Services.PriceLookupService.ProductSummary? best = null;
+            decimal bestPrice = -1;
+            for (int i = 0; i < members.Count; i++)
+            {
+                var d = i < details.Length ? details[i] : null;
+                if (d != null && d.Success)
+                {
+                    // همون قیمتی که با انتخاب این ردیف دوباره می‌گرفتیم را همین‌جا روی خودِ آیتم
+                    // می‌گذاریم تا اگر کاربر این یکی را انتخاب کرد، دیگر لازم نباشد دوباره تی‌تک
+                    // را صدا بزنیم.
+                    members[i].TotalPriceRial = d.TotalPriceRial;
+                    members[i].ConsumerPricePerUnit = d.ConsumerPricePerUnit;
+                    if (string.IsNullOrWhiteSpace(members[i].BrandOwner))
+                        members[i].BrandOwner = d.BrandOwner;
+                }
+                decimal price = d != null && d.Success ? Math.Max(d.TotalPriceRial, d.ConsumerPricePerUnit) : 0;
+                if (price > bestPrice)
+                {
+                    bestPrice = price;
+                    best = members[i];
+                }
+            }
+            result.Add(best ?? members[0]);
+        }
+
+        return result;
+    }
+
     /// <summary>نمایش لیست مرتب‌شده‌ی فرآورده‌ها برای انتخاب. فیلتر شکل/دوز فقط برای جست‌وجوی نام.</summary>
     private async Task ShowProductSelectionListAsync(List<Services.PriceLookupService.ProductSummary> products, bool showFormDoseFilter = false)
     {
+        products = await DeduplicateSimilarProductsKeepingHighestPriceAsync(products);
+
         if (products.Count == 0)
         {
             HidePriceLookupFilterPanel();
@@ -12509,17 +12638,73 @@ nQIDAQAB
             .ToList();
 
         _priceLookupCurrentList = ordered;
-        PriceLookupStatusText.Text = ordered.Count + " فرآورده پیدا شد — یکی را انتخاب کنید:";
+        PriceLookupStatusText.Text = "🔍 در حال گرفتن قیمت هر ردیف...";
         PriceLookupStatusText.Visibility = Visibility.Visible;
-        BroadcastPriceLookupList(ordered, PriceLookupStatusText.Text);
         PriceLookupResultsList.Visibility = Visibility.Visible;
         PriceLookupDetailsPanel.Visibility = Visibility.Collapsed;
         if (showFormDoseFilter)
             PopulatePriceLookupFilters(ordered);
         else
             HidePriceLookupFilterPanel();
+
+        // تا کاربر بتواند فقط با اسکرول لیست، قیمتِ هر ردیف را ببیند (بدون کلیک روی هرکدام)،
+        // قیمتِ ردیف‌هایی که هنوز معلوم نیست را همین‌جا از قبل می‌گیریم.
+        await EnrichVisiblePricesForListAsync(ordered);
+
+        PriceLookupStatusText.Text = ordered.Count + " فرآورده پیدا شد — یکی را انتخاب کنید:";
+        BroadcastPriceLookupList(ordered, PriceLookupStatusText.Text);
         RenderPriceLookupResultRows(ordered);
         return;
+    }
+
+    private const int MaxListPriceEnrichCount = 40;
+
+    /// <summary>
+    /// برای این‌که کاربر فقط با اسکرول لیست قیمت هر ردیف را ببیند (نه این‌که مجبور باشد رویش
+    /// کلیک کند)، قیمتِ فرآورده‌هایی که هنوز قیمت مستقیم ندارند (مثلاً نتیجه‌ی جست‌وجوی نام که
+    /// GetCompactProducts قیمت نمی‌دهد) را همین‌جا موازی می‌گیرد - فقط برای حداکثر
+    /// MaxListPriceEnrichCount ردیفِ اول، تا برای جست‌وجوهای خیلی کلی/پرنتیجه صدها درخواست
+    /// هم‌زمان به تی‌تک زده نشود. بقیه (اگر بیشتر از این تعداد بود) مثل قبل با کلیک روی ردیف
+    /// قیمتشان گرفته می‌شود.
+    /// </summary>
+    private async Task EnrichVisiblePricesForListAsync(List<Services.PriceLookupService.ProductSummary> ordered)
+    {
+        var needsPrice = ordered
+            .Where(p => !p.HasDirectPrice && p.ProductId > 0)
+            .Take(MaxListPriceEnrichCount)
+            .ToList();
+        if (needsPrice.Count == 0)
+            return;
+
+        using var throttle = new SemaphoreSlim(8);
+        var tasks = needsPrice.Select(async p =>
+        {
+            await throttle.WaitAsync();
+            try
+            {
+                var d = await PriceLookup.GetProductDetailsAsync(p.ProductId, PriceLookupToken);
+                if (d.Success)
+                {
+                    p.TotalPriceRial = d.TotalPriceRial;
+                    p.ConsumerPricePerUnit = d.ConsumerPricePerUnit;
+                    if (string.IsNullOrWhiteSpace(p.BrandOwner)) p.BrandOwner = d.BrandOwner;
+                    if (string.IsNullOrWhiteSpace(p.EnName)) p.EnName = d.EnName;
+                    if (string.IsNullOrWhiteSpace(p.GenericCode)) p.GenericCode = d.GenericCode;
+                    if (string.IsNullOrWhiteSpace(p.PackageCount)) p.PackageCount = d.PackageCount;
+                    if (string.IsNullOrWhiteSpace(p.ProductType)) p.ProductType = d.ProductType;
+                }
+            }
+            catch
+            {
+                // این یکی بی‌قیمت می‌ماند - رفتار قبلی (گرفتن قیمت با کلیک روی ردیف) همچنان کار می‌کند.
+            }
+            finally
+            {
+                throttle.Release();
+            }
+        }).ToList();
+
+        try { await Task.WhenAll(tasks); } catch { }
     }
 
     private void HidePriceLookupFilterPanel()
@@ -12637,18 +12822,23 @@ nQIDAQAB
             string brandCell = string.IsNullOrWhiteSpace(p.Brand) ? p.Title : p.Brand;
             string formCell = string.IsNullOrWhiteSpace(p.Form) ? "—" : p.Form;
             string doseCell = string.IsNullOrWhiteSpace(p.Dose) ? "—" : p.Dose;
-            string ircCell = p.Subtitle.StartsWith("IRC: ") ? p.Subtitle.Substring(5) : (p.Subtitle.Length > 0 ? p.Subtitle : "—");
+
+            // به‌جای IRC/بارکد، همون چیزی که کاربر با اسکرول لیست می‌خواد ببینه: قیمت. اگر قیمت
+            // این ردیف از قبل (هنگام ساخت لیست) گرفته شده باشد سبز و پررنگ نشان داده می‌شود؛ اگر
+            // (برای لیست‌های خیلی بزرگ) هنوز گرفته نشده، فقط یک خط تیره نشان می‌دهیم.
+            bool hasPrice = p.HasDirectPrice;
+            decimal? priceValue = hasPrice ? Math.Max(p.TotalPriceRial, p.ConsumerPricePerUnit) : (decimal?)null;
 
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(170) });
 
             AddPriceCell(grid, 0, formCell, "#EFF6FF", "#1E3A8A", 11.5, wrap: true);
             AddPriceCell(grid, 1, brandCell, "#FFFFFF", "#0F172A", 12.5, bold: true, wrap: true);
             AddPriceCell(grid, 2, doseCell, "#FFFFFF", "#0F172A", 11.5, ltr: true, wrap: true);
-            AddPriceCell(grid, 3, ircCell, "#F8FAFC", "#475569", 11, ltr: true);
+            AddPriceValueCell(grid, 3, priceValue, hasPrice ? "#F0FDF4" : "#F8FAFC", hasPrice ? "#16A34A" : "#94A3B8");
 
             var btn = new System.Windows.Controls.Button
             {
@@ -12672,9 +12862,10 @@ nQIDAQAB
                 if (s is System.Windows.Controls.Button b && b.Tag is Services.PriceLookupService.ProductSummary sel)
                 {
                     bool needsFetch = sel.ProductId > 0
-                        && string.IsNullOrWhiteSpace(sel.EnName)
-                        && string.IsNullOrWhiteSpace(sel.GenericCode)
-                        && string.IsNullOrWhiteSpace(sel.BrandOwner);
+                        && (string.IsNullOrWhiteSpace(sel.EnName)
+                            || string.IsNullOrWhiteSpace(sel.GenericCode)
+                            || string.IsNullOrWhiteSpace(sel.PackageCount)
+                            || string.IsNullOrWhiteSpace(sel.BrandOwner));
                     if (needsFetch)
                     {
                         await RunProductDetailsAsync(sel.ProductId, sel.Title);
@@ -12711,6 +12902,68 @@ nQIDAQAB
         if (ltr)
             tb.FlowDirection = System.Windows.FlowDirection.LeftToRight;
         border.Child = tb;
+        Grid.SetColumn(border, col);
+        grid.Children.Add(border);
+    }
+
+    /// <summary>
+    /// سلول ویژه‌ی قیمت داخل لیست: عدد وسط‌چین و پررنگ با «ریال» خیلی کوچک زیرش؛ اگر قیمت هنوز
+    /// معلوم نباشد (price == null) فقط یک خط تیره‌ی وسط‌چین نشان می‌دهد.
+    /// </summary>
+    private static void AddPriceValueCell(Grid grid, int col, decimal? price, string bg, string fg)
+    {
+        var border = new Border
+        {
+            Background = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(bg),
+            CornerRadius = new CornerRadius(6),
+            Margin = new Thickness(2),
+            Padding = new Thickness(8, 5, 8, 5),
+            VerticalAlignment = System.Windows.VerticalAlignment.Stretch,
+        };
+        var brush = (System.Windows.Media.Brush)new System.Windows.Media.BrushConverter().ConvertFromString(fg);
+
+        if (price is null)
+        {
+            border.Child = new System.Windows.Controls.TextBlock
+            {
+                Text = "—",
+                FontSize = 15,
+                FontWeight = System.Windows.FontWeights.SemiBold,
+                Foreground = brush,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                TextAlignment = System.Windows.TextAlignment.Center,
+            };
+        }
+        else
+        {
+            var stack = new System.Windows.Controls.StackPanel
+            {
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+            };
+            stack.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = price.Value.ToString("N0", System.Globalization.CultureInfo.InvariantCulture),
+                FontSize = 13.5,
+                FontWeight = System.Windows.FontWeights.Bold,
+                Foreground = brush,
+                FlowDirection = System.Windows.FlowDirection.LeftToRight,
+                TextAlignment = System.Windows.TextAlignment.Center,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            });
+            stack.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = "ریال",
+                FontSize = 9,
+                Foreground = brush,
+                TextAlignment = System.Windows.TextAlignment.Center,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                Margin = new Thickness(0, 1, 0, 0),
+            });
+            border.Child = stack;
+        }
+
         Grid.SetColumn(border, col);
         grid.Children.Add(border);
     }
