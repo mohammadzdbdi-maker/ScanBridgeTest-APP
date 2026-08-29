@@ -2,10 +2,10 @@
     <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
     <OutputType>WinExe</OutputType>
-    <Version>2.1.5</Version>
-    <AssemblyVersion>2.1.5.0</AssemblyVersion>
-    <FileVersion>2.1.5.0</FileVersion>
-    <ProductVersion>2.1.5</ProductVersion>
+    <Version>2.1.6</Version>
+    <AssemblyVersion>2.1.6.0</AssemblyVersion>
+    <FileVersion>2.1.6.0</FileVersion>
+    <ProductVersion>2.1.6</ProductVersion>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
