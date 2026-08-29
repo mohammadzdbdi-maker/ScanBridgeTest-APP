@@ -4,7 +4,7 @@
 ; 2) Then compile this script with Inno Setup.
 
 #define AppName "Scanbridge"
-#define AppVersion "2.1.5"
+#define AppVersion "2.1.6"
 #define AppPublisher "Scanbridge"
 #define AppURL "https://scanbridge.ir"
 #define AppExeName "ScanBridgeTest.exe"
@@ -55,3 +55,26 @@ Name: "{userdesktop}\Scanbridge"; Filename: "{app}\{#AppExeName}"; IconFilename:
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "اجرای Scanbridge"; Flags: nowait postinstall skipifsilent
+
+[Code]
+procedure KillProcess(const ExeName: string);
+var
+  ResultCode: Integer;
+begin
+  // taskkill returns a non-zero exit code when the process isn't running — that's fine,
+  // we don't care about the result either way, we just want it not to be running.
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "' + ExeName + '" /T', '', SW_HIDE,
+       ewWaitUntilTerminated, ResultCode);
+end;
+
+function InitializeSetup(): Boolean;
+begin
+  // adb.exe (Android Debug Bridge, used for mobile pairing) starts its own background
+  // server process that keeps running even after Scanbridge itself is closed. Windows
+  // refuses to overwrite a running .exe ("DeleteFile failed; Access is denied"), which
+  // breaks the update on machines where it's still alive. Kill both it and the main app
+  // before Setup starts extracting files.
+  KillProcess('adb.exe');
+  KillProcess('ScanBridgeTest.exe');
+  Result := True;
+end;
