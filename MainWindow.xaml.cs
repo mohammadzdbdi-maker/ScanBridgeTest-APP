@@ -115,9 +115,21 @@ nQIDAQAB
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<Services.PriceLookupService.PriceResult>> _pricePrefetchTasksByBarcode = new();
     private readonly Dictionary<string, string> _deviceAliases = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<ConnectedDeviceInfo> _lastConnectedDevices = new();
+    // هویتِ (خام - نه اسم مستعار) گوشیِ آخرین اسکنی که رسیده - برای این‌که وقتی چند گوشی هم‌زمان
+    // وصل‌اند، پیام‌های ویژگی «ورود اطلاعات از راه دور» (فرم ثبت شیرخشک روی گوشی) فقط برای همان
+    // گوشی‌ای فرستاده شود که واقعاً اسکن کرده - نگاه کنید به GetLastScanDeviceKey و
+    // MainWindow.RemoteFormulaEntry.cs. DeviceId (وقتی اپ گوشی جدید و آن را می‌فرستد) قابل‌اعتمادتر
+    // از DeviceName است چون دو گوشیِ هم‌مدل، DeviceName یکسان دارند.
+    private string _lastScanDeviceId = string.Empty;
+    private string _lastScanOriginalDeviceName = string.Empty;
     private bool _usbInternetTipShown;
     private Services.AdbUsbBridge? _adbBridge;
     private string _editingDeviceOriginalName = string.Empty;
+    // کلید یکتای دستگاهی که همین الان در حال ویرایش نامش هستیم (DeviceId اگر موجود، وگرنه همان
+    // _editingDeviceOriginalName) - نگاه کنید به GetDeviceIdentityKey. این همان چیزی است که در
+    // _deviceAliases به‌عنوان کلید استفاده می‌شود؛ _editingDeviceOriginalName هنوز فقط برای نمایشِ
+    // «نام اصلی» خام در دیالوگ نگه داشته می‌شود.
+    private string _editingDeviceIdentityKey = string.Empty;
     private TtTeckHistoryRow? _pendingRetryTtTeckRow;
     private TtTeckHistoryRow? _pendingRegistrationTtTeckRow;
     private string _lastTtTeckWebViewUrl = "https://newstatisticsreports.ttac.ir/pharmacyDashboard";
@@ -417,6 +429,11 @@ nQIDAQAB
                     (incomingBarcode, originalDeviceName) = (originalDeviceName, incomingBarcode);
                 }
 
+                // هویت گوشیِ این اسکن را نگه می‌داریم - نگاه کنید به GetLastScanDeviceKey. بعد از
+                // سواپِ بالا ثبت می‌شود تا اگر سواپ انجام شد، اسم درست (نه بارکد) ذخیره شود.
+                _lastScanDeviceId = args.DeviceId ?? "";
+                _lastScanOriginalDeviceName = originalDeviceName;
+
                 incomingBarcode = CleanBarcodeForExternalUse(incomingBarcode);
 
                 // اگر QR اتصال خود برنامه اشتباهاً به عنوان اسکن برگشت، وارد تاریخچه و تی‌تک نشود.
@@ -457,7 +474,7 @@ nQIDAQAB
                     return;
 
                 var timestampLocal = ToLocalTimestamp(args.TimestampUtc);
-                var record = new ScanRecord(timestampLocal, incomingBarcode, GetDeviceDisplayName(originalDeviceName));
+                var record = new ScanRecord(timestampLocal, incomingBarcode, GetDeviceDisplayName(_lastScanDeviceId, originalDeviceName));
 
                 var barcodeType = BarcodeDetector.DetectBarcodeType(incomingBarcode);
                 record.Source = barcodeType;
@@ -4750,7 +4767,8 @@ nQIDAQAB
                 _localization.GetString("AlreadyRegisteredFormulaTitleForPhone"),
                 _localization.GetString("ThisProductWasAlreadyRegisteredForThisPharmacyForPhone"),
                 true,
-                GetFormulaPhotoPathForBarcode(record.Barcode));
+                GetFormulaPhotoPathForBarcode(record.Barcode),
+                targetDeviceKey: GetLastScanDeviceKey());
             return;
         }
 
@@ -9264,7 +9282,7 @@ nQIDAQAB
             // یک هشدار با دکمه‌ی «باشه» نشان داده می‌شود - همراه با همان عکس شیرخشکی که در دیالوگ
             // «ثبت شد» دسکتاپ دیده شد (اگر عکسی برای این قلم موجود باشد).
             if (canRepeatFormulaRegistration)
-                _service?.BroadcastAlert(registeredTitle, successMessage, true, formulaPhotoPath, canRepeat: true);
+                _service?.BroadcastAlert(registeredTitle, successMessage, true, formulaPhotoPath, canRepeat: true, targetDeviceKey: _remoteEntryDeviceKey);
         }
         catch (Exception ex)
         {
@@ -10464,10 +10482,16 @@ nQIDAQAB
         var redBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE5, 0x39, 0x35));
         var greenBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x10, 0xB9, 0x81));
 
+        // مبلغ‌ها (رقم + کاما) هر کدام به‌صورت یک Run جدا اضافه می‌شوند تا رنگی شوند؛ چون این
+        // اعداد داخل یک متن راست‌به‌چپ (فارسی) قرار می‌گیرند و گاهی بلافاصله بعد از پرانتز بسته
+        // یا کلمه‌ی «و» می‌آیند، الگوریتم Bidi ممکن است ترتیب گروه‌های جداشده با کاما را در همان
+        // Run به‌هم بریزد (مثلاً «۳,۰۵۰,۰۰۰» را به‌صورت «۰۰۰,۳,۰۵۰» نشان دهد). با ثابت‌کردن
+        // FlowDirection این Run روی چپ‌به‌راست، عدد از تأثیر متن راست‌به‌چپ اطرافش مستقل و ایزوله
+        // می‌شود و همیشه با ترتیب صحیح نمایش داده می‌شود.
         inlines.Add(new Run(message.Substring(0, baseGroup.Index)));
-        inlines.Add(new Run(baseGroup.Value) { Foreground = redBrush, FontWeight = FontWeights.Bold });
+        inlines.Add(new Run(baseGroup.Value) { Foreground = redBrush, FontWeight = FontWeights.Bold, FlowDirection = System.Windows.FlowDirection.LeftToRight });
         inlines.Add(new Run(message.Substring(baseGroup.Index + baseGroup.Length, patientGroup.Index - (baseGroup.Index + baseGroup.Length))));
-        inlines.Add(new Run(patientGroup.Value) { Foreground = insurancePaidNothing ? redBrush : greenBrush, FontWeight = FontWeights.Bold });
+        inlines.Add(new Run(patientGroup.Value) { Foreground = insurancePaidNothing ? redBrush : greenBrush, FontWeight = FontWeights.Bold, FlowDirection = System.Windows.FlowDirection.LeftToRight });
         inlines.Add(new Run(message.Substring(patientGroup.Index + patientGroup.Length)));
     }
 
@@ -11801,22 +11825,50 @@ nQIDAQAB
         catch { }
     }
 
-    private string GetDeviceDisplayName(string? originalDeviceName)
+    // نسخه‌ی قدیمی/ساده - همان رفتار قبلی را دارد (کلید = خودِ originalDeviceName). هنوز توسط
+    // نقاطی از کد استفاده می‌شود که فقط اسم خام (نه شناسه‌ی یکتای دستگاه) در دسترس‌شان است، مثل
+    // ستون دستگاه در تاریخچه/اکسل یا پیام «قطع اتصال» - آن‌ها بدون تغییر کار می‌کنند چون در این
+    // حالت overload زیر با identityKey=null دقیقاً همین رفتار قبلی را بازتولید می‌کند.
+    private string GetDeviceDisplayName(string? originalDeviceName) => GetDeviceDisplayName(null, originalDeviceName);
+
+    // اسم مستعار (alias) یک دستگاه را برمی‌گرداند. identityKey وقتی داده شود (DeviceId اگر اپ گوشی
+    // آن را می‌فرستد، وگرنه DeviceName خام - نگاه کنید به GetDeviceIdentityKey) به‌عنوان کلید
+    // دیکشنری _deviceAliases استفاده می‌شود؛ rawDeviceName فقط برای نمایشِ پیش‌فرض وقتی هیچ alias ای
+    // ثبت نشده. جدا کردن «کلید» از «متن نمایشی خام» دقیقاً همان چیزی است که مشکل زیر را حل می‌کند:
+    // قبلاً هر دو یکی بودند (خودِ DeviceName) - یعنی دو گوشیِ هم‌مدل (که DeviceName یکسانی مثل
+    // «Xiaomi Redmi Note 10» دارند) روی یک کلید مشترک در دیکشنری می‌نشستند؛ تغییرِ اسمِ یکی، برای
+    // دیگری هم (چه همان لحظه چه بعد از قطع/وصل مجدد) اعمال می‌شد (باگ گزارش‌شده).
+    private string GetDeviceDisplayName(string? identityKey, string? rawDeviceName)
     {
-        if (string.IsNullOrWhiteSpace(originalDeviceName))
+        string raw = rawDeviceName ?? "";
+        string key = string.IsNullOrWhiteSpace(identityKey) ? raw : identityKey;
+        if (string.IsNullOrWhiteSpace(key))
             return "";
 
-        return _deviceAliases.TryGetValue(originalDeviceName, out var alias) && !string.IsNullOrWhiteSpace(alias)
-            ? alias
-            : originalDeviceName;
+        if (_deviceAliases.TryGetValue(key, out var alias) && !string.IsNullOrWhiteSpace(alias))
+            return alias;
+
+        return string.IsNullOrWhiteSpace(raw) ? key : raw;
     }
+
+    // کلید یکتای یک دستگاهِ وصل‌شده برای استفاده در _deviceAliases و منطق مشابه: DeviceId اگر اپ
+    // گوشی آن را فرستاده باشد (اپ‌های به‌روزشده)، وگرنه DeviceName خام (fallback برای اپ‌های قدیمی).
+    private static string GetDeviceIdentityKey(ConnectedDeviceInfo device) =>
+        string.IsNullOrWhiteSpace(device.DeviceId) ? device.DeviceName : device.DeviceId;
+
+    // کلیدی که سرویس (ScanBridgeService.ResolveTargetSockets) برای فرستادن پیام فقط به همان گوشیِ
+    // آخرین اسکن استفاده می‌کند: DeviceId اگر موجود باشد (قابل‌اعتمادتر)، وگرنه DeviceName خام.
+    private string GetLastScanDeviceKey() =>
+        !string.IsNullOrWhiteSpace(_lastScanDeviceId) ? _lastScanDeviceId : _lastScanOriginalDeviceName;
 
     private void DeviceRow_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (sender is not FrameworkElement element || element.Tag is not string originalDeviceName)
+        // این Tag دیگر مستقیم DeviceName نیست - به IdentityKey تغییر کرد (نگاه کنید به XAML و
+        // DeviceRowDisplayViewModel.IdentityKey).
+        if (sender is not FrameworkElement element || element.Tag is not string identityKey)
             return;
 
-        OpenDeviceAliasEditor(originalDeviceName);
+        OpenDeviceAliasEditor(identityKey);
         e.Handled = true;
     }
 
@@ -11905,11 +11957,20 @@ nQIDAQAB
         return _localization.GetString("TheCurrentConnectionServiceDoesNotExposeADirectDisconnectMethodForThisDevice");
     }
 
-    private void OpenDeviceAliasEditor(string originalDeviceName)
+    // identityKey همان چیزی است که حالا ردیف دستگاه در XAML روی Tag می‌گذارد (نگاه کنید به
+    // DeviceRowDisplayViewModel.IdentityKey) - DeviceId اگر موجود باشد، وگرنه DeviceName خام. نام
+    // خامِ قابل‌نمایش («نام اصلی») را از _lastConnectedDevices پیدا می‌کنیم چون Tag دیگر همیشه
+    // DeviceName نیست.
+    private void OpenDeviceAliasEditor(string identityKey)
     {
-        _editingDeviceOriginalName = originalDeviceName;
-        DeviceAliasOriginalText.Text = originalDeviceName;
-        DeviceAliasTextBox.Text = GetDeviceDisplayName(originalDeviceName);
+        string rawName = _lastConnectedDevices
+            .FirstOrDefault(d => string.Equals(GetDeviceIdentityKey(d), identityKey, StringComparison.OrdinalIgnoreCase))
+            ?.DeviceName ?? identityKey;
+
+        _editingDeviceIdentityKey = identityKey;
+        _editingDeviceOriginalName = rawName;
+        DeviceAliasOriginalText.Text = rawName;
+        DeviceAliasTextBox.Text = GetDeviceDisplayName(identityKey, rawName);
         DeviceAliasOverlay.Visibility = Visibility.Visible;
         MainContent.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 18 };
         DeviceAliasTextBox.Focus();
@@ -11933,33 +11994,35 @@ nQIDAQAB
 
     private void DeviceAliasSaveButton_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(_editingDeviceOriginalName))
+        if (string.IsNullOrWhiteSpace(_editingDeviceIdentityKey))
             return;
 
-        string oldDisplayName = GetDeviceDisplayName(_editingDeviceOriginalName);
+        string oldDisplayName = GetDeviceDisplayName(_editingDeviceIdentityKey, _editingDeviceOriginalName);
         string newDisplayName = DeviceAliasTextBox.Text.Trim();
 
         if (string.IsNullOrWhiteSpace(newDisplayName) || newDisplayName.Equals(_editingDeviceOriginalName, StringComparison.OrdinalIgnoreCase))
-            _deviceAliases.Remove(_editingDeviceOriginalName);
+            _deviceAliases.Remove(_editingDeviceIdentityKey);
         else
-            _deviceAliases[_editingDeviceOriginalName] = newDisplayName;
+            // با identityKey ذخیره می‌شود، نه با نام خام - نگاه کنید به توضیح بالای GetDeviceDisplayName؛
+            // این دقیقاً همان چیزی است که از قاطی‌شدن نام دو گوشیِ هم‌مدل جلوگیری می‌کند.
+            _deviceAliases[_editingDeviceIdentityKey] = newDisplayName;
 
         SaveDeviceAliases();
         RefreshDeviceRowsFromLastState();
-        ApplyDeviceAliasToHistoryItems(_editingDeviceOriginalName, oldDisplayName, GetDeviceDisplayName(_editingDeviceOriginalName));
+        ApplyDeviceAliasToHistoryItems(_editingDeviceIdentityKey, oldDisplayName, GetDeviceDisplayName(_editingDeviceIdentityKey, _editingDeviceOriginalName));
         CloseDeviceAliasEditor();
     }
 
     private void DeviceAliasResetButton_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(_editingDeviceOriginalName))
+        if (string.IsNullOrWhiteSpace(_editingDeviceIdentityKey))
             return;
 
-        string oldDisplayName = GetDeviceDisplayName(_editingDeviceOriginalName);
-        _deviceAliases.Remove(_editingDeviceOriginalName);
+        string oldDisplayName = GetDeviceDisplayName(_editingDeviceIdentityKey, _editingDeviceOriginalName);
+        _deviceAliases.Remove(_editingDeviceIdentityKey);
         SaveDeviceAliases();
         RefreshDeviceRowsFromLastState();
-        ApplyDeviceAliasToHistoryItems(_editingDeviceOriginalName, oldDisplayName, _editingDeviceOriginalName);
+        ApplyDeviceAliasToHistoryItems(_editingDeviceIdentityKey, oldDisplayName, _editingDeviceOriginalName);
         CloseDeviceAliasEditor();
     }
 
@@ -12008,13 +12071,22 @@ nQIDAQAB
 
     private void UpdateDeviceRows(IReadOnlyList<ConnectedDeviceInfo> devices)
     {
+        // مهم: اول یک کپی می‌گیریم، نه مستقیم روی devices کار می‌کنیم. RefreshDeviceRowsFromLastState
+        // این متد را با خودِ _lastConnectedDevices صدا می‌زند (یعنی devices همان شیء است) - اگر
+        // بدون کپی مستقیم _lastConnectedDevices.Clear() زده می‌شد، چون devices هم همان شیء است،
+        // خودِ devices هم همزمان خالی می‌شد و AddRange پایین‌تر چیزی برای اضافه‌کردن نداشت. نتیجه:
+        // بعد از ذخیره‌ی تغییر نامِ گوشی، کل لیست «دستگاه‌های وصل‌شده» از UI ناپدید می‌شد و تا
+        // رسیدن اولین رویداد واقعیِ بعدی (مثلاً اسکن بعدی که یک لیست تازه می‌سازد) برنمی‌گشت - دقیقاً
+        // همان باگ گزارش‌شده.
+        var snapshot = devices.ToList();
+
         _lastConnectedDevices.Clear();
-        _lastConnectedDevices.AddRange(devices);
+        _lastConnectedDevices.AddRange(snapshot);
 
         Dispatcher.BeginInvoke(new Action(() =>
         {
             DeviceRows.Clear();
-            foreach (var device in devices)
+            foreach (var device in snapshot)
             {
                 string badge = device.LinkKind switch
                 {
@@ -12023,10 +12095,12 @@ nQIDAQAB
                     _ => "🔗 LAN"
                 };
 
+                string identityKey = GetDeviceIdentityKey(device);
                 DeviceRows.Add(new DeviceRowDisplayViewModel
                 {
                     OriginalDeviceName = device.DeviceName,
-                    DeviceName = GetDeviceDisplayName(device.DeviceName),
+                    IdentityKey = identityKey,
+                    DeviceName = GetDeviceDisplayName(identityKey, device.DeviceName),
                     LinkBadge = badge,
                     StatusColor = device.HasScanned
                         ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4C, 0xAF, 0x50))
@@ -15653,6 +15727,11 @@ public class ProductDetailField
 public class DeviceRowDisplayViewModel
 {
     public string OriginalDeviceName { get; set; } = "";
+    // کلید یکتای این دستگاه (DeviceId اگر اپ گوشی می‌فرستد، وگرنه OriginalDeviceName) - XAML این
+    // را روی Tag ردیف/کلیک برای «تغییر نام» می‌گذارد (نه OriginalDeviceName - دکمه‌ی «قطع اتصال»
+    // همچنان از OriginalDeviceName استفاده می‌کند چون سرویس فعلاً قطع‌کردن را با DeviceName
+    // خام مچ می‌کند). نگاه کنید به GetDeviceIdentityKey در MainWindow.xaml.cs.
+    public string IdentityKey { get; set; } = "";
     public string DeviceName { get; set; } = "";
     public string LinkBadge { get; set; } = "";
     public System.Windows.Media.Brush StatusColor { get; set; } = System.Windows.Media.Brushes.Transparent;

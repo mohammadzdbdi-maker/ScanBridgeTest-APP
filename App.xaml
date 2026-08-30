@@ -4,7 +4,7 @@
              xmlns:local="clr-namespace:ScanBridgeTest"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
-        <FontFamily x:Key="AppFont">./Assets/font/#Pinar DS1</FontFamily>
+        <FontFamily x:Key="AppFont">./Assets/font/#AradFD</FontFamily>
         
         <Style x:Key="RoundedButtonStyle" TargetType="Button">
             <Setter Property="FontFamily" Value="{StaticResource AppFont}" />

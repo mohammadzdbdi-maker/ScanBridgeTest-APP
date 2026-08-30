@@ -56,6 +56,13 @@ public partial class MainWindow
 
     // بارکد قلمی که همین الان ورود از راه دور برایش فعال است؛ null یعنی غیرفعال.
     private string? _remoteEntryBarcode;
+    // هویت (DeviceId یا در نبودش DeviceName خام) گوشیِ اسکن‌کننده - وقتی این جریان شروع شد از
+    // GetLastScanDeviceKey() گرفته می‌شود (نگاه کنید به MainWindow.xaml.cs) و تا شروع جریانِ بعدی
+    // همین می‌ماند (حتی بعد از EndRemoteFormulaEntry - چون پیام موفقیتِ نهایی، چند خط بعد از
+    // EndRemoteFormulaEntry فرستاده می‌شود و هنوز باید بداند برای کدام گوشی بود). همه‌ی پیام‌های
+    // این ویژگی (مرحله/لغو/نتیجه) با همین کلید فقط برای همین یک گوشی فرستاده می‌شوند - نه برای
+    // همه‌ی گوشی‌های وصل - تا وقتی چند گوشی هم‌زمان وصل‌اند، اسکنِ یکی روی فرمِ بقیه ظاهر نشود.
+    private string _remoteEntryDeviceKey = string.Empty;
     private string? _remoteEntryCurrentStepId;
     // مرحله‌ای که همین الان روی گوشی نشان داده شده - برای بازسازی دقیق مرحله‌ی قبلی وقتی کاربر
     // دکمه‌ی «قبلی» را می‌زند.
@@ -102,6 +109,9 @@ public partial class MainWindow
             return;
 
         _remoteEntryBarcode = row.Barcode;
+        // همین‌جا هویت گوشیِ اسکن‌کننده برای کل این جریان «قفل» می‌شود - نگاه کنید به توضیح بالای
+        // فیلد _remoteEntryDeviceKey.
+        _remoteEntryDeviceKey = GetLastScanDeviceKey();
 
         string productName = string.IsNullOrWhiteSpace(row.ProductDisplayName) ? row.Barcode : row.ProductDisplayName;
         string? photoBase64 = ReadFileAsBase64OrNull(GetFormulaPhotoPathForBarcode(row.Barcode));
@@ -138,7 +148,7 @@ public partial class MainWindow
             CaptchaImageBase64 = captchaImageBase64,
             InputType = inputType
         };
-        _service.BroadcastRemoteEntryStep(_remoteEntryBarcode!, stepId, label, hint ?? string.Empty, photoBase64, captchaImageBase64, inputType, prefillValue);
+        _service.BroadcastRemoteEntryStep(_remoteEntryBarcode!, stepId, label, hint ?? string.Empty, photoBase64, captchaImageBase64, inputType, prefillValue, targetDeviceKey: _remoteEntryDeviceKey);
     }
 
     // مقدار فعلیِ TextBox دسکتاپ متناظر با یک stepId را برمی‌گرداند (برای پرکردن از قبلِ کادر
@@ -205,7 +215,7 @@ public partial class MainWindow
 
         if (wasActive && notifyPhone && !string.IsNullOrEmpty(barcode))
         {
-            try { _service?.BroadcastRemoteEntryCancel(barcode); } catch { }
+            try { _service?.BroadcastRemoteEntryCancel(barcode, targetDeviceKey: _remoteEntryDeviceKey); } catch { }
         }
     }
 

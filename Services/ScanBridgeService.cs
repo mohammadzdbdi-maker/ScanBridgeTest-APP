@@ -22,16 +22,19 @@ public enum ConnectionState
 
 public sealed class ConnectedDeviceInfo
 {
-    public ConnectedDeviceInfo(string deviceName, bool hasScanned, string linkKind)
+    public ConnectedDeviceInfo(string deviceName, bool hasScanned, string linkKind, string deviceId = "")
     {
         DeviceName = deviceName;
         HasScanned = hasScanned;
         LinkKind = linkKind;
+        DeviceId = deviceId;
     }
 
     public string DeviceName { get; }
     public bool HasScanned { get; }
     public string LinkKind { get; }
+    // نگاه کنید به توضیح DeviceState.DeviceId - خالی یعنی اپ گوشی هنوز این نسخه را ندارد.
+    public string DeviceId { get; }
 }
 
 public sealed class ConnectedDevicesChangedEventArgs : EventArgs
@@ -63,7 +66,7 @@ public sealed class ScanBridgeService : IDisposable
     private readonly System.Timers.Timer _connectionHealthTimer = new(TimeSpan.FromSeconds(20).TotalMilliseconds);
     // هر چند ثانیه یک‌بار IP شبکه را چک می‌کند تا اگر عوض شد، QR اتصال خودکار دوباره ساخته شود.
     private readonly System.Timers.Timer _lanIpWatchTimer = new(TimeSpan.FromSeconds(5).TotalMilliseconds);
-    private readonly BlockingCollection<(IWebSocketConnection Socket, string Barcode, string DeviceName)> _keyboardQueue = new();
+    private readonly BlockingCollection<(IWebSocketConnection Socket, string Barcode, string DeviceName, string DeviceId)> _keyboardQueue = new();
     private readonly ConcurrentDictionary<IWebSocketConnection, bool> _erroredConnections = new();
     private readonly ConcurrentDictionary<IWebSocketConnection, DeviceState> _connectedDevices = new();
     // ack اسکن (صف پردازش)، پینگ سلامت (تایمر جدا)، و broadcastهای هشدار/ورود از راه دور همگی
@@ -134,9 +137,29 @@ public sealed class ScanBridgeService : IDisposable
     private sealed class DeviceState
     {
         public string DeviceName = "دستگاه ناشناس";
+        // شناسه‌ی یکتا و پایدار گوشی (UUID که اپ اندروید یک‌بار می‌سازد و در SharedPreferences نگه
+        // می‌دارد - نگاه کنید به MainActivity.kt). برخلاف DeviceName (که فقط «سازنده + مدل» است و
+        // برای دو گوشیِ هم‌مدل کاملاً یکسان می‌شود - دقیقاً همان چیزی که باعث می‌شد اسکن یک گوشی روی
+        // فرم هر دو گوشی ظاهر شود، یا تغییرنامِ یک گوشی برای گوشیِ بعدیِ هم‌مدل هم اعمال بماند)،
+        // DeviceId واقعاً یکتا است. اپ‌های قدیمی‌تر (قبل از این تغییر) این فیلد را نمی‌فرستند - در آن
+        // حالت خالی می‌ماند و کل منطق تشخیص هویت به‌طور خودکار به DeviceName برمی‌گردد (نگاه کنید به
+        // DeviceIdentityMatches).
+        public string DeviceId = "";
         public bool HasScanned;
         public DateTime LastSeenUtc = DateTime.UtcNow;
         public string LinkKind = "LAN";
+    }
+
+    // دو DeviceState «همان گوشی» حساب می‌شوند اگر: هر دو DeviceId داشته باشند و برابر باشند (روش
+    // قابل‌اعتماد)، یا (وقتی حداقل یکی DeviceId ندارد - اپ قدیمی) DeviceName برابر باشد (روش قدیمی،
+    // fallback). این تابع واحد جای همه‌ی مقایسه‌های پراکنده‌ی قبلی را می‌گیرد تا منطق یک‌جا و
+    // یک‌دست بماند.
+    private static bool DeviceIdentityMatches(DeviceState a, DeviceState b)
+    {
+        if (!string.IsNullOrWhiteSpace(a.DeviceId) && !string.IsNullOrWhiteSpace(b.DeviceId))
+            return string.Equals(a.DeviceId, b.DeviceId, StringComparison.OrdinalIgnoreCase);
+
+        return string.Equals(a.DeviceName, b.DeviceName, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class PeerInfo
@@ -214,6 +237,7 @@ public sealed class ScanBridgeService : IDisposable
             socket.OnMessage = message =>
             {
                 string deviceName = "";
+                string deviceId = "";
                 string barcode = string.Empty;
                 string messageType = string.Empty;
                 string remoteEntryStepId = string.Empty;
@@ -234,6 +258,7 @@ public sealed class ScanBridgeService : IDisposable
                 {
                     using var doc = System.Text.Json.JsonDocument.Parse(message);
                     deviceName = GetJsonMessageString(doc.RootElement, "deviceName");
+                    deviceId = GetJsonMessageString(doc.RootElement, "deviceId");
                     barcode = GetJsonMessageString(doc.RootElement, "barcode");
                     messageType = GetJsonMessageString(doc.RootElement, "type");
                     remoteEntryStepId = GetJsonMessageString(doc.RootElement, "stepId");
@@ -289,18 +314,27 @@ public sealed class ScanBridgeService : IDisposable
                 {
                     state.LastSeenUtc = DateTime.UtcNow;
                     if (!string.IsNullOrWhiteSpace(deviceName))
-                    {
                         state.DeviceName = deviceName;
+                    if (!string.IsNullOrWhiteSpace(deviceId))
+                        state.DeviceId = deviceId;
 
+                    if (!string.IsNullOrWhiteSpace(deviceName) || !string.IsNullOrWhiteSpace(deviceId))
+                    {
                         // همین گوشی قبلاً از مسیر دیگری (مثلاً Wi-Fi) وصل شده و سوییچ کرده
                         // (مثلاً به کابل) — اتصال قبلی اگر هنوز بسته نشده باشد «زامبی» توی
                         // لیست دستگاه‌ها می‌ماند و به‌نظر می‌رسد دو گوشی وصل‌اند. اتصال قبلیِ
-                        // هم‌نام را همین‌جا می‌بندیم؛ OnClose آن خودش همه‌چیز را پاک می‌کند.
+                        // «همین گوشی» را همین‌جا می‌بندیم؛ OnClose آن خودش همه‌چیز را پاک می‌کند.
+                        // تشخیص «همین گوشی» با DeviceIdentityMatches انجام می‌شود که وقتی هر دو
+                        // طرف DeviceId دارند از آن استفاده می‌کند، نه DeviceName - چون دو گوشیِ
+                        // مختلفِ هم‌مدل (مثلاً دو گوشی مشابه که داروخانه خریده) دقیقاً همان
+                        // DeviceName را می‌فرستند و قبلاً با مقایسه‌ی صرفِ DeviceName، وصل‌شدنِ
+                        // گوشیِ دوم باعث قطع‌شدنِ گوشیِ اول می‌شد (باگ ممیزی: اتصال چند گوشیِ
+                        // هم‌مدل ناپایدار بود).
                         foreach (var dup in _connectedDevices.ToArray())
                         {
                             if (dup.Key == socket)
                                 continue;
-                            if (!string.Equals(dup.Value.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase))
+                            if (!DeviceIdentityMatches(dup.Value, state))
                                 continue;
                             try { dup.Key.Close(); } catch { }
                         }
@@ -313,7 +347,7 @@ public sealed class ScanBridgeService : IDisposable
                 // اگر اینجا صف نشود، با باز بودن استعلام قیمت بارکد کلاً گم می‌شود.
                 if (!string.IsNullOrWhiteSpace(barcode))
                 {
-                    _keyboardQueue.Add((socket, barcode, deviceName));
+                    _keyboardQueue.Add((socket, barcode, deviceName, deviceId));
                 }
             };
             });
@@ -946,6 +980,7 @@ public sealed class ScanBridgeService : IDisposable
                 {
                     string barcode = item.Barcode;
                     string deviceName = item.DeviceName;
+                    string deviceId = item.DeviceId;
                     bool suppressKeyboard = SuppressKeyboardInjection;
 
                     if (!suppressKeyboard)
@@ -975,11 +1010,11 @@ public sealed class ScanBridgeService : IDisposable
                         if (suppressKeyboard)
                         {
                             // پنجره‌ی قیمت باز است: فقط به UI بده، تاریخچه و تایپ کیبورد نه.
-                            ScanReceived?.Invoke(this, new ScanReceivedEventArgs(barcode, DateTime.UtcNow, deviceName));
+                            ScanReceived?.Invoke(this, new ScanReceivedEventArgs(barcode, DateTime.UtcNow, deviceName, deviceId));
                         }
                         else
                         {
-                            AppendScan(barcode, deviceName);
+                            AppendScan(barcode, deviceName, deviceId);
                         }
                     }
                     catch (Exception ex)
@@ -1174,20 +1209,42 @@ public sealed class ScanBridgeService : IDisposable
         _blockedDeviceNameToIps.Clear();
     }
 
+    // برمی‌گرداند کدام سوکت‌های وصل باید پیام را بگیرند. وقتی targetDeviceKey خالی/null باشد، همه
+    // (رفتار قدیمیِ broadcast). وقتی مقدار دارد، فقط سوکتی که DeviceId یا (اگر DeviceId نداشت)
+    // DeviceName اش با همین کلید یکی باشد - نگاه کنید به توضیح DeviceIdentityMatches/DeviceState.
+    // این دقیقاً همان چیزی است که ویژگی «ورود اطلاعات از راه دور» (BroadcastRemoteEntryStep/
+    // Cancel و BroadcastAlert موقع نتیجه‌ی ثبت شیرخشک) را استفاده می‌کند تا وقتی چند گوشی هم‌زمان
+    // وصل‌اند، فقط همان گوشی‌ای که بارکد را اسکن کرده فرم/نتیجه را ببیند - قبلاً همه‌ی گوشی‌های
+    // وصل هم‌زمان فرم یکسان می‌دیدند (باگ گزارش‌شده: «یه بارکد اسکن کردم و روی هر دو فرم ثبت اومد»).
+    private IEnumerable<IWebSocketConnection> ResolveTargetSockets(string? targetDeviceKey)
+    {
+        if (string.IsNullOrWhiteSpace(targetDeviceKey))
+            return _connectedDevices.Keys.ToArray();
+
+        return _connectedDevices
+            .Where(pair =>
+                string.Equals(pair.Value.DeviceId, targetDeviceKey, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(pair.Value.DeviceName, targetDeviceKey, StringComparison.OrdinalIgnoreCase))
+            .Select(pair => pair.Key)
+            .ToArray();
+    }
+
     /// <summary>
-    /// یک هشدار (مثلاً نتیجه‌ی ثبت شیرخشک - موفق، ناموفق یا هر پیام دیگر) را برای همه‌ی
-    /// گوشی‌های وصل‌شده می‌فرستد. اپ اندروید این پیام را با فیلد "type": "SCANBRIDGE_ALERT"
-    /// می‌شناسد و به‌صورت یک دیالوگ با دکمه‌ی «باشه» نشان می‌دهد. اگر گوشی‌ای وصل نباشد، این کار
-    /// بی‌اثر است (نه خطا می‌دهد نه چیزی صف می‌شود - فقط هشدارهای لحظه‌ای که گوشی آنلاین است ارسال می‌شوند).
+    /// یک هشدار (مثلاً نتیجه‌ی ثبت شیرخشک - موفق، ناموفق یا هر پیام دیگر) را می‌فرستد. اپ اندروید
+    /// این پیام را با فیلد "type": "SCANBRIDGE_ALERT" می‌شناسد و به‌صورت یک دیالوگ با دکمه‌ی «باشه»
+    /// نشان می‌دهد. اگر گوشی‌ای وصل نباشد، این کار بی‌اثر است (نه خطا می‌دهد نه چیزی صف می‌شود -
+    /// فقط هشدارهای لحظه‌ای که گوشی آنلاین است ارسال می‌شوند).
     /// اگر <paramref name="photoPath"/> داده شود (مسیر فایل عکس شیرخشک روی دیسک)، محتوای فایل
     /// به Base64 تبدیل و به‌عنوان "photoBase64" داخل همین پیام فرستاده می‌شود تا گوشی هم عکس را
     /// کنار پیام نشان دهد؛ اگر فایل پیدا نشود یا خواندنش خطا بدهد، پیام بدون عکس (فقط متن) فرستاده
     /// می‌شود - این خطا نباید جلوی رسیدن خودِ پیام را بگیرد.
+    /// اگر <paramref name="targetDeviceKey"/> داده شود، فقط همان گوشی پیام را می‌گیرد؛ در غیر این
+    /// صورت (null/خالی) طبق رفتار قبلی برای همه‌ی گوشی‌های وصل فرستاده می‌شود.
     /// </summary>
     // canRepeat فقط وقتی true است که این پیام یک ثبتِ شیرخشکِ واقعاً موفق را اعلام می‌کند (نه
     // هشدار «قبلاً ثبت شده» و نه هیچ پیام دیگری) - گوشی با دیدن این پرچم، کنار دکمه‌ی «باشه» یک
     // دکمه‌ی «ثبت مجدد» هم نشان می‌دهد.
-    public void BroadcastAlert(string title, string body, bool success, string? photoPath = null, bool canRepeat = false)
+    public void BroadcastAlert(string title, string body, bool success, string? photoPath = null, bool canRepeat = false, string? targetDeviceKey = null)
     {
         string? photoBase64 = null;
         if (!string.IsNullOrWhiteSpace(photoPath))
@@ -1214,7 +1271,7 @@ public sealed class ScanBridgeService : IDisposable
         };
 
         string json = JsonSerializer.Serialize(payloadObj);
-        foreach (var socket in _connectedDevices.Keys.ToArray())
+        foreach (var socket in ResolveTargetSockets(targetDeviceKey))
         {
             try
             {
@@ -1230,9 +1287,10 @@ public sealed class ScanBridgeService : IDisposable
     /// <summary>
     /// یک مرحله از فرم ثبت شیرخشک (کد ملی، تاریخ تولد، کپچا و ...) را برای نمایش روی گوشی
     /// می‌فرستد - بخشی از ویژگی «ورود اطلاعات از راه دور». اگر گوشی‌ای وصل نباشد، بی‌اثر است.
+    /// اگر <paramref name="targetDeviceKey"/> داده شود، فقط همان گوشی این مرحله را می‌بیند.
     /// </summary>
     public void BroadcastRemoteEntryStep(string barcode, string stepId, string label, string hint,
-        string? photoBase64 = null, string? captchaImageBase64 = null, string inputType = "text", string? prefillValue = null)
+        string? photoBase64 = null, string? captchaImageBase64 = null, string inputType = "text", string? prefillValue = null, string? targetDeviceKey = null)
     {
         var payloadObj = new
         {
@@ -1248,7 +1306,7 @@ public sealed class ScanBridgeService : IDisposable
         };
 
         string json = JsonSerializer.Serialize(payloadObj);
-        foreach (var socket in _connectedDevices.Keys.ToArray())
+        foreach (var socket in ResolveTargetSockets(targetDeviceKey))
         {
             try { SafeSend(socket, json); }
             catch (Exception ex) { Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to send remote-entry step to a device: {ex.Message}"); }
@@ -1258,12 +1316,13 @@ public sealed class ScanBridgeService : IDisposable
     /// <summary>
     /// جریان «ورود اطلاعات از راه دور» را روی گوشی لغو می‌کند (مثلاً چون کاربر خودش فرم را روی
     /// دسکتاپ بست) - بدون هیچ پیام قابل‌مشاهده‌ای، فقط ویزارد را از روی گوشی پاک می‌کند.
+    /// اگر <paramref name="targetDeviceKey"/> داده شود، فقط همان گوشی لغو را می‌گیرد.
     /// </summary>
-    public void BroadcastRemoteEntryCancel(string barcode)
+    public void BroadcastRemoteEntryCancel(string barcode, string? targetDeviceKey = null)
     {
         var payloadObj = new { type = "REMOTE_ENTRY_CANCEL", barcode };
         string json = JsonSerializer.Serialize(payloadObj);
-        foreach (var socket in _connectedDevices.Keys.ToArray())
+        foreach (var socket in ResolveTargetSockets(targetDeviceKey))
         {
             try { SafeSend(socket, json); }
             catch (Exception ex) { Console.WriteLine($"[{DateTime.UtcNow:O}] Failed to send remote-entry cancel to a device: {ex.Message}"); }
@@ -1524,7 +1583,7 @@ public sealed class ScanBridgeService : IDisposable
         }
     }
 
-    private void AppendScan(string barcode, string deviceName = "")
+    private void AppendScan(string barcode, string deviceName = "", string deviceId = "")
     {
         lock (_scanFileLock)
         {
@@ -1538,11 +1597,14 @@ public sealed class ScanBridgeService : IDisposable
                 writer.WriteLine("timestamp_iso,deviceName,barcode");
             }
 
+            // عمداً deviceId داخل این فایل CSV نوشته نمی‌شود - فرمت سه‌ستونیِ فایل جای دیگری
+            // (نگاه کنید به کامنت بالای بخش خواندنِ این فایل) با فرض همین سه ستون پارس می‌شود؛
+            // deviceId فقط زنده (in-memory) از طریق ScanReceivedEventArgs پایین‌تر می‌رود.
             writer.WriteLine($"{DateTime.UtcNow:O},{EscapeCsv(deviceName)},{EscapeCsv(barcode)}");
             writer.Flush();
         }
 
-        ScanReceived?.Invoke(this, new ScanReceivedEventArgs(barcode, DateTime.UtcNow, deviceName));
+        ScanReceived?.Invoke(this, new ScanReceivedEventArgs(barcode, DateTime.UtcNow, deviceName, deviceId));
     }
 
     private static string EscapeCsv(string value)
@@ -1605,10 +1667,14 @@ public sealed class ScanBridgeService : IDisposable
 
     private void PublishConnectedDevices()
     {
+        // قبلاً اینجا صرفاً بر اساس DeviceName گروه‌بندی می‌شد - یعنی دو گوشیِ هم‌مدل (که DeviceName
+        // یکسان «سازنده + مدل» دارند) به یک ردیف تبدیل می‌شدند و یکی‌شان از لیست «دستگاه‌های
+        // وصل‌شده» گم می‌شد. حالا وقتی DeviceId موجود است (اپ‌های به‌روز) با آن گروه‌بندی می‌شود که
+        // واقعاً یکتاست؛ فقط برای اپ‌های قدیمی‌تر (DeviceId خالی) به همان DeviceName برمی‌گردد.
         var snapshot = _connectedDevices.Values
-            .GroupBy(s => s.DeviceName, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(s => string.IsNullOrWhiteSpace(s.DeviceId) ? "name:" + s.DeviceName : "id:" + s.DeviceId, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.OrderByDescending(s => s.LastSeenUtc).First())
-            .Select(s => new ConnectedDeviceInfo(s.DeviceName, s.HasScanned, s.LinkKind))
+            .Select(s => new ConnectedDeviceInfo(s.DeviceName, s.HasScanned, s.LinkKind, s.DeviceId))
             .ToList();
 
         ConnectedDevicesChanged?.Invoke(this, new ConnectedDevicesChangedEventArgs(snapshot));
@@ -1706,16 +1772,21 @@ public sealed class ScanEntry
 
 public sealed class ScanReceivedEventArgs : EventArgs
 {
-    public ScanReceivedEventArgs(string barcode, DateTime timestampUtc, string deviceName = "")
+    public ScanReceivedEventArgs(string barcode, DateTime timestampUtc, string deviceName = "", string deviceId = "")
     {
         Barcode = barcode;
         TimestampUtc = timestampUtc;
         DeviceName = deviceName;
+        DeviceId = deviceId;
     }
 
     public string Barcode { get; }
     public DateTime TimestampUtc { get; }
     public string DeviceName { get; }
+    // شناسه‌ی یکتای گوشیِ ارسال‌کننده‌ی همین اسکن (خالی برای اپ‌های قدیمی‌تر) - برای اینکه فقط
+    // همان گوشی (نه همه‌ی گوشی‌های وصل) نتیجه‌ی «ورود اطلاعات از راه دور» را ببیند؛ نگاه کنید به
+    // MainWindow.RemoteFormulaEntry.cs.
+    public string DeviceId { get; }
 }
 
 public sealed class RemoteEntryValueEventArgs : EventArgs

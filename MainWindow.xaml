@@ -296,7 +296,7 @@
                                                     Padding="10,8"
                                                     Margin="0,0,0,8"
                                                     Cursor="Hand"
-                                                    Tag="{Binding OriginalDeviceName}"
+                                                    Tag="{Binding IdentityKey}"
                                                     MouseDown="DeviceRow_MouseDown">
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
@@ -1084,8 +1084,16 @@
              دیده شود. -->
         <Grid x:Name="PriceResultOverlay" Panel.ZIndex="420" Background="#80000000" Visibility="Collapsed" PreviewKeyDown="PriceResultOverlay_PreviewKeyDown">
     <Border Background="White" CornerRadius="24" Padding="24" Width="760" MaxHeight="860" HorizontalAlignment="Center" VerticalAlignment="Center">
-        <StackPanel>
-            <Grid Margin="0,0,0,14">
+        <!-- قبلاً یه StackPanel ساده بود با ScrollViewer با MaxHeight ثابت (660) — چون این عدد صرفاً
+             حدسی بود نه بر اساس فضای واقعی صفحه، روی مانیتورهای کوچیک (۱۳۶۶×۷۶۸) کارت کلاً از
+             ارتفاع صفحه بیرون می‌زد. حالا با Grid Auto/* هدر همیشه بالای صفحه ثابته و فقط لیست
+             قیمت زیرش، به‌اندازه‌ی فضای واقعی که باقی می‌مونه (نه یه عدد ثابت)، اسکرول می‌خوره. -->
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0" Margin="0,0,0,14">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -1106,7 +1114,7 @@
                         ToolTip="قیمت تعداد دلخواه = تعداد × قیمت مصرف‌کننده" />
                 <Button Grid.Column="2" Content="✕" Click="PriceResultCloseButton_Click" Style="{StaticResource RoundedButtonStyle}" Background="#DC2626" Foreground="White" Width="34" Height="34" Padding="0" FontWeight="Bold" FontSize="16" />
             </Grid>
-            <ScrollViewer MaxHeight="660" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
                     <Border x:Name="PriceResultNotDrugWarning" Background="#FEF2F2" BorderBrush="#FCA5A5" BorderThickness="1" CornerRadius="14" Padding="10" Margin="0,0,0,8" Visibility="Collapsed">
                         <TextBlock x:Name="PriceResultWarningText" Text="&#1575;&#1610;&#1606; &#1605;&#1581;&#1589;&#1608;&#1604; &#1583;&#1585; &#1586;&#1610;&#1585;&#1711;&#1585;&#1608;&#1607; &#1583;&#1575;&#1585;&#1608;&#1610;&#1610; &#1606;&#1610;&#1587;&#1578;" FontSize="13" Foreground="#B91C1C" TextWrapping="Wrap" />
@@ -1160,7 +1168,7 @@
                     </Border>
                 </StackPanel>
             </ScrollViewer>
-        </StackPanel>
+        </Grid>
     </Border>
 </Grid>
 
@@ -4982,80 +4990,97 @@
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     MouseDown="StyledMessageCard_MouseDown">
-                <StackPanel HorizontalAlignment="Center">
-                    <Border x:Name="StyledMessageIconCircle"
-                            Width="72"
-                            Height="72"
-                            CornerRadius="36"
-                            Background="#ECFDF5"
-                            Margin="0,0,0,18">
-                        <TextBlock x:Name="StyledMessageIcon"
-                                   Text="✓"
-                                   FontSize="46"
+                <Grid>
+                    <!-- قبلاً همه‌چیز توی یه StackPanel ساده بود که هیچ اسکرولی نداشت؛ اگه متن پیام
+                         بلند بود (مخصوصاً کنار عکس محصول یا لیست داروخانه‌ها)، کل کارت از ارتفاع
+                         صفحه‌های کوچیک (مثل ۱۳۶۶×۷۶۸) بیرون می‌زد و دکمه‌های پایین (باشه/تلاش مجدد و
+                         غیره) از دید خارج می‌شدن. حالا آیکون+عنوان بالا ثابته، دکمه‌ها پایین ثابته، و
+                         فقط بخش وسط (متن پیام + لیست داروخانه‌ها) اگه لازم شد اسکرول می‌خوره. -->
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" HorizontalAlignment="Center">
+                        <Border x:Name="StyledMessageIconCircle"
+                                Width="72"
+                                Height="72"
+                                CornerRadius="36"
+                                Background="#ECFDF5"
+                                Margin="0,0,0,18">
+                            <TextBlock x:Name="StyledMessageIcon"
+                                       Text="✓"
+                                       FontSize="46"
+                                       FontWeight="Bold"
+                                       Foreground="#10B981"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                        </Border>
+
+                        <TextBlock x:Name="StyledMessageTitle"
+                                   Text="ثبت شد"
+                                   FontSize="24"
                                    FontWeight="Bold"
-                                   Foreground="#10B981"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center" />
-                    </Border>
-
-                    <TextBlock x:Name="StyledMessageTitle"
-                               Text="ثبت شد"
-                               FontSize="24"
-                               FontWeight="Bold"
-                               Foreground="#1A237E"
-                               TextAlignment="Center"
-                               Margin="0,0,0,12" />
-
-                    <Border x:Name="StyledMessageProductPhotoBorder"
-                            Background="White"
-                            CornerRadius="16"
-                            Padding="14"
-                            BorderBrush="#E5E7EB"
-                            BorderThickness="1"
-                            Width="200"
-                            Height="200"
-                            HorizontalAlignment="Center"
-                            Margin="0,0,0,18"
-                            Visibility="Collapsed">
-                        <Image x:Name="StyledMessageProductPhoto" Stretch="Uniform" />
-                    </Border>
-
-                    <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled"
-                                  MaxHeight="500"
-                                  Margin="0,0,0,26">
-                        <TextBlock x:Name="StyledMessageText"
-                                   Text="تنظیمات با موفقیت ذخیره شدند"
-                                   FontSize="15"
-                                   Foreground="#4B5563"
+                                   Foreground="#1A237E"
                                    TextAlignment="Center"
-                                   TextWrapping="Wrap" />
-                    </ScrollViewer>
+                                   Margin="0,0,0,12" />
 
-                    <!-- لیست داروخانه‌ها برای تعویض سریع -->
-                    <Border x:Name="StyledMessagePharmacyListBorder"
-                            Background="#F0F4FF"
-                            CornerRadius="12"
-                            Padding="12"
-                            Visibility="Collapsed"
-                            Margin="0,0,0,18">
-                        <StackPanel>
-                            <TextBlock x:Name="StyledMessagePharmacyListTitle"
-                                       Text=""
-                                       FontSize="14"
-                                       FontWeight="SemiBold"
-                                       Foreground="#1A237E"
-                                       TextAlignment="Center"
-                                       Margin="0,0,0,10" />
+                        <Border x:Name="StyledMessageProductPhotoBorder"
+                                Background="White"
+                                CornerRadius="16"
+                                Padding="14"
+                                BorderBrush="#E5E7EB"
+                                BorderThickness="1"
+                                Width="200"
+                                Height="200"
+                                HorizontalAlignment="Center"
+                                Margin="0,0,0,18"
+                                Visibility="Collapsed">
+                            <Image x:Name="StyledMessageProductPhoto" Stretch="Uniform" />
+                        </Border>
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel HorizontalAlignment="Center">
                             <ScrollViewer VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled"
-                                          MaxHeight="300">
-                                <StackPanel x:Name="StyledMessagePharmacyListPanel" />
+                                          MaxHeight="500"
+                                          Margin="0,0,0,26">
+                                <TextBlock x:Name="StyledMessageText"
+                                           Text="تنظیمات با موفقیت ذخیره شدند"
+                                           FontSize="15"
+                                           Foreground="#4B5563"
+                                           TextAlignment="Center"
+                                           TextWrapping="Wrap" />
                             </ScrollViewer>
-                        </StackPanel>
-                    </Border>
 
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <!-- لیست داروخانه‌ها برای تعویض سریع -->
+                            <Border x:Name="StyledMessagePharmacyListBorder"
+                                    Background="#F0F4FF"
+                                    CornerRadius="12"
+                                    Padding="12"
+                                    Visibility="Collapsed"
+                                    Margin="0,0,0,18">
+                                <StackPanel>
+                                    <TextBlock x:Name="StyledMessagePharmacyListTitle"
+                                               Text=""
+                                               FontSize="14"
+                                               FontWeight="SemiBold"
+                                               Foreground="#1A237E"
+                                               TextAlignment="Center"
+                                               Margin="0,0,0,10" />
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled"
+                                                  MaxHeight="300">
+                                        <StackPanel x:Name="StyledMessagePharmacyListPanel" />
+                                    </ScrollViewer>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,18,0,0">
                         <Button x:Name="StyledMessageLinkButton"
                                 Content="باز کردن لینک"
                                 Click="StyledMessageLinkButton_Click"
@@ -5100,7 +5125,7 @@
                                 Width="150"
                                 Height="48" />
                     </StackPanel>
-                </StackPanel>
+                </Grid>
             </Border>
         </Grid>
     </Grid>

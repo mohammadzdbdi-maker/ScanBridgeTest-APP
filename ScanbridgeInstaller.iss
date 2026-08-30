@@ -4,7 +4,7 @@
 ; 2) Then compile this script with Inno Setup.
 
 #define AppName "Scanbridge"
-#define AppVersion "2.1.6"
+#define AppVersion "2.1.9"
 #define AppPublisher "Scanbridge"
 #define AppURL "https://scanbridge.ir"
 #define AppExeName "ScanBridgeTest.exe"
@@ -24,7 +24,6 @@ OutputBaseFilename=Scanbridge-Setup-{#AppVersion}
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 CloseApplications=yes
 RestartIfNeededByRun=no
 CreateAppDir=yes

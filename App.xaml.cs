@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Forms;
 using System.Drawing;
@@ -11,6 +12,33 @@ namespace ScanBridgeTest;
 
 public partial class App : System.Windows.Application
 {
+    // تنظیم DPI awareness از طریق کد به‌جای app.manifest: مانیفست exe اگه یه ذره غلط باشه
+    // کل اجرای برنامه رو با "CreateProcess failed; code 14001 (side-by-side configuration
+    // incorrect)" می‌ترکونه (این یه بار واقعاً اتفاق افتاد). این روش با یه فراخوانی API استاندارد
+    // ویندوز (از Windows 10 1703 به بعد، که این برنامه با WebView2 حداقلش همینه) هیچ ریسکی
+    // برای exe نداره؛ اگه هم روی ویندوز خیلی قدیمی نبود، فقط false برمی‌گردونه و رد می‌شیم.
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetProcessDpiAwarenessContext(IntPtr dpiContext);
+
+    private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new(-4);
+
+    // اگه سیستم به‌اندازه‌ی کافی جدید نبود که از تابع بالا (Windows 10 1703+) پشتیبانی کنه،
+    // این دو تا رده‌ی پایین‌تر رو هم امتحان می‌کنیم تا حداقل روی ویندوز 8.1 به بعد
+    // (SetProcessDpiAwareness) یا حتی ویستا به بعد (SetProcessDPIAware) یه DPI awareness
+    // پایه فعال بشه، نه اینکه کاملاً بی‌خیال بشیم و اپ روی سیستم‌های قدیمی‌تر بیت‌مپ کشیده بشه.
+    [DllImport("shcore.dll", SetLastError = true)]
+    private static extern int SetProcessDpiAwareness(int value);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetProcessDPIAware();
+
+    private static void ApplyBestAvailableDpiAwareness()
+    {
+        try { if (SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) return; } catch { }
+        try { if (SetProcessDpiAwareness(2 /* PROCESS_PER_MONITOR_DPI_AWARE */) == 0) return; } catch { }
+        try { SetProcessDPIAware(); } catch { }
+    }
+
     private const string AppDisplayName = "Scanbridge";
     private ScanBridgeService? _service;
     private MainWindow? _mainWindow;
@@ -58,6 +86,12 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // باید همین اول تابع و قبل از ساخته‌شدن هر پنجره‌ای صدا زده بشه تا WPF از همون اول
+        // با آگاهی درست از DPI هر مانیتور رندر کنه (وگرنه روی صفحه‌های اسکیل‌شده — مثلاً
+        // ۱۳۶۶×۷۶۸ با اسکیل ۱۲۵٪/۱۵۰٪ — ویندوز کل پنجره رو بیت‌مپ می‌کشه و کادرها/دکمه‌ها از
+        // لبه‌ی صفحه بیرون می‌زنن).
+        ApplyBestAvailableDpiAwareness();
+
         LogStartupTrace("OnStartup entered. Args: " + string.Join(" ", e.Args));
         base.OnStartup(e);
         ShutdownMode = ShutdownMode.OnExplicitShutdown;

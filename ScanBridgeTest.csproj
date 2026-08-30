@@ -2,10 +2,10 @@
     <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
     <OutputType>WinExe</OutputType>
-    <Version>2.1.7</Version>
-    <AssemblyVersion>2.1.7.0</AssemblyVersion>
-    <FileVersion>2.1.7.0</FileVersion>
-    <ProductVersion>2.1.7</ProductVersion>
+    <Version>2.1.9</Version>
+    <AssemblyVersion>2.1.9.0</AssemblyVersion>
+    <FileVersion>2.1.9.0</FileVersion>
+    <ProductVersion>2.1.9</ProductVersion>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -34,7 +34,8 @@
 
     <ItemGroup>
     <Resource Include="Assets\app-icon.ico" />
-    <Resource Include="Assets\font\Pinar-DS1-Regular.ttf" />
+    <Resource Include="Assets\font\AradFD-Regular.ttf" />
+    <Resource Include="Assets\font\AradFD-Bold.ttf" />
     <Content Include="Assets\app-icon.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
