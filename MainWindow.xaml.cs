@@ -8187,6 +8187,36 @@ nQIDAQAB
         return Path.Combine(AppContext.BaseDirectory, "archive-state.json");
     }
 
+    // آخرین پوشه‌ای که کاربر برای ذخیره‌ی آرشیو ماهانه انتخاب کرده - فقط برای این‌که دیالوگ انتخاب
+    // پوشه (نگاه کنید به CheckMonthlyArchiveReminderForCurrentPharmacyAsync) دفعه‌ی بعد از همان‌جا
+    // باز شود، نه اینکه انتخاب کاربر را دور بزند - هر ماه دوباره از او پرسیده می‌شود.
+    private string GetArchiveFolderPreferencePath()
+    {
+        return Path.Combine(AppContext.BaseDirectory, "archive-folder-preference.txt");
+    }
+
+    private string LoadLastArchiveFolderPreference()
+    {
+        try
+        {
+            string path = GetArchiveFolderPreferencePath();
+            return File.Exists(path) ? File.ReadAllText(path).Trim() : string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private void SaveLastArchiveFolderPreference(string folder)
+    {
+        try
+        {
+            File.WriteAllText(GetArchiveFolderPreferencePath(), folder);
+        }
+        catch { }
+    }
+
     private Dictionary<string, MonthlyArchiveState> LoadArchiveStateStore()
     {
         try
@@ -8269,10 +8299,46 @@ nQIDAQAB
             string title = _localization.GetString("MonthlyArchive");
             string message = _localization.GetString("ANewMonthHasStartedDoYouWantScanbridgeToCreateAMultiSheetExcelArchiveForThePreviousDataAndStartThisMonthWithACleanWorkspaceRawDataWillAlsoBeKeptInArchive");
 
-            var result = System.Windows.MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (result == MessageBoxResult.Yes)
+            // طبق درخواست کاربر: به‌جای MessageBox خام ویندوز (فونت/ظاهر پیش‌فرض ویندوز، دکمه‌های
+            // Yes/No انگلیسی)، همان Overlay استایل‌دار داخل خودِ برنامه که برای تایید بروزرسانی
+            // استفاده می‌شود اینجا هم استفاده می‌شود - هم‌فونت (Arad) و هم‌لایوت با بقیه‌ی
+            // پاپ‌آپ‌های برنامه.
+            bool confirmedArchive = await ShowUpdateConfirmOverlayAsync(
+                title,
+                message,
+                confirmText: "بله",
+                cancelText: "خیر");
+            if (confirmedArchive)
             {
-                bool archiveOk = await CreateMonthlyArchiveForCurrentPharmacyAsync(pharmacyKey, state.LastSeenMonth, currentMonth);
+                // طبق درخواست کاربر: قبل از ساخت آرشیو، خودش مسیر ذخیره را انتخاب کند - قبلاً
+                // همیشه بی‌صدا داخل پوشه‌ی نصب برنامه (AppContext.BaseDirectory\Archive) ذخیره
+                // می‌شد. دیالوگ با آخرین پوشه‌ای که قبلاً انتخاب شده باز می‌شود (اگر هنوز وجود
+                // داشته باشد) تا هر ماه از صفر لازم نباشد دوباره مسیر را پیدا کند.
+                string initialFolder = LoadLastArchiveFolderPreference();
+                if (string.IsNullOrWhiteSpace(initialFolder) || !Directory.Exists(initialFolder))
+                    initialFolder = Path.Combine(AppContext.BaseDirectory, "Archive");
+
+                var folderDialog = new Microsoft.Win32.OpenFolderDialog
+                {
+                    Title = "محل ذخیره‌ی آرشیو ماهانه را انتخاب کنید",
+                    InitialDirectory = initialFolder
+                };
+
+                if (folderDialog.ShowDialog() != true || string.IsNullOrWhiteSpace(folderDialog.FolderName))
+                {
+                    // کاربر دیالوگ انتخاب پوشه را انصراف داد - مثل جواب «خیر» رفتار می‌کنیم: امروز
+                    // دوباره مزاحمش نمی‌شویم، اما LastSeenMonth تغییر نمی‌کند تا روز دیگر دوباره
+                    // (و این‌بار شاید با مسیر درست) بپرسیم.
+                    state.LastDismissedDate = today;
+                    store[pharmacyKey] = state;
+                    SaveArchiveStateStore(store);
+                    return;
+                }
+
+                string chosenArchiveFolder = folderDialog.FolderName;
+                SaveLastArchiveFolderPreference(chosenArchiveFolder);
+
+                bool archiveOk = await CreateMonthlyArchiveForCurrentPharmacyAsync(pharmacyKey, state.LastSeenMonth, currentMonth, chosenArchiveFolder);
                 if (archiveOk)
                 {
                     state.LastArchivedMonth = state.LastSeenMonth;
@@ -8322,7 +8388,7 @@ nQIDAQAB
         return monthKey;
     }
 
-    private async Task<bool> CreateMonthlyArchiveForCurrentPharmacyAsync(string pharmacyKey, string archiveMonth, string currentMonth)
+    private async Task<bool> CreateMonthlyArchiveForCurrentPharmacyAsync(string pharmacyKey, string archiveMonth, string currentMonth, string archiveBaseFolder)
     {
         await Task.Yield();
         string persianMonth = GetCurrentArchivePersianMonthKey();
@@ -8337,7 +8403,10 @@ nQIDAQAB
             ? safeArchiveMonth
             : $"{safeArchiveMonth}_to_{coverageEndMonth}";
 
-        string archiveRoot = Path.Combine(AppContext.BaseDirectory, "Archive", pharmacyKey, archiveLabel);
+        // archiveBaseFolder همان پوشه‌ای است که کاربر توی دیالوگ انتخاب کرده (نگاه کنید به
+        // CheckMonthlyArchiveReminderForCurrentPharmacyAsync) - قبلاً همیشه ثابت زیر پوشه‌ی نصب
+        // برنامه بود.
+        string archiveRoot = Path.Combine(archiveBaseFolder, pharmacyKey, archiveLabel);
         string rawDir = Path.Combine(archiveRoot, "Data");
         Directory.CreateDirectory(rawDir);
 
